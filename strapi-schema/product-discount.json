@@ -1,0 +1,69 @@
+{
+  "kind": "collectionType",
+  "collectionName": "product_discounts",
+  "info": {
+    "singularName": "product-discount",
+    "pluralName": "product-discounts",
+    "displayName": "Product Discount",
+    "description": "Pairs products with their discounts from Dutchie"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "productName": {
+      "type": "string",
+      "required": true
+    },
+    "productDutchieId": {
+      "type": "string",
+      "required": true
+    },
+    "productDescription": {
+      "type": "text"
+    },
+    "productImageUrl": {
+      "type": "string"
+    },
+    "productBrand": {
+      "type": "string"
+    },
+    "discountName": {
+      "type": "string",
+      "required": true
+    },
+    "discountBrand": {
+      "type": "string"
+    },
+    "discountImageUrl": {
+      "type": "string"
+    },
+    "discountStartTimestamp": {
+      "type": "datetime",
+      "required": true
+    },
+    "discountEndTimestamp": {
+      "type": "datetime",
+      "required": true
+    },
+    "discountIsActive": {
+      "type": "boolean",
+      "default": true
+    },
+    "discountDutchieId": {
+      "type": "string",
+      "required": true
+    },
+    "storeId": {
+      "type": "string",
+      "required": true
+    },
+    "storeName": {
+      "type": "string"
+    },
+    "storeLocation": {
+      "type": "string"
+    }
+  }
+}

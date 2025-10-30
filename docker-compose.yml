@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  # Option 1: Using built-in scheduler
+  dutchie-sync:
+    build: .
+    container_name: dutchie-sync
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - SYNC_INTERVAL=15
+      - NODE_ENV=production
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - dutchie-network
+
+  # Option 2: Using cron (uncomment to use)
+  # dutchie-sync-cron:
+  #   build: .
+  #   container_name: dutchie-sync-cron
+  #   restart: unless-stopped
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     - NODE_ENV=production
+  #   volumes:
+  #     - ./logs:/app/logs
+  #   command: ["crond", "-f", "-l", "2"]
+  #   networks:
+  #     - dutchie-network
+
+networks:
+  dutchie-network:
+    driver: bridge
