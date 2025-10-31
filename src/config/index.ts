@@ -16,6 +16,10 @@ interface Config {
     apiUrl: string;
     apiToken: string;
   };
+  redis: {
+    url: string;
+    enabled: boolean;
+  };
   sync: {
     intervalMinutes?: number;
   };
@@ -33,6 +37,10 @@ const config: Config = {
   strapi: {
     apiUrl: process.env.STRAPI_API_URL || 'http://localhost:1337',
     apiToken: process.env.STRAPI_API_TOKEN || '',
+  },
+  redis: {
+    url: process.env.REDIS_URL || 'redis://localhost:6379',
+    enabled: process.env.REDIS_ENABLED !== 'false', // Enabled by default
   },
   sync: {
     intervalMinutes: process.env.SYNC_INTERVAL

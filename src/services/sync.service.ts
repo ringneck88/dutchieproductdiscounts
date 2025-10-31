@@ -7,6 +7,8 @@
 import DutchieService from './dutchie.service';
 import strapiService from './strapi.service';
 import storeService from './store.service';
+import redisService from './redis.service';
+import config from '../config';
 import { DutchieProduct, DutchieDiscount, ProductDiscount, Store } from '../types';
 
 interface SyncStats {
@@ -30,7 +32,7 @@ interface SyncStats {
 
 class SyncService {
   /**
-   * Main sync method - fetches from Dutchie and syncs to Strapi
+   * Main sync method - fetches from Dutchie and syncs to Strapi + Redis
    * Loops through all stores
    */
   async sync(): Promise<SyncStats> {
@@ -50,6 +52,19 @@ class SyncService {
     };
 
     try {
+      // Connect to Redis if enabled
+      if (config.redis.enabled) {
+        try {
+          await redisService.connect(config.redis.url);
+          console.log('✓ Redis cache enabled\n');
+        } catch (error) {
+          console.warn('⚠️  Redis connection failed, continuing without cache');
+          console.warn('   Error:', error);
+        }
+      } else {
+        console.log('ℹ️  Redis cache disabled\n');
+      }
+
       // Fetch all valid stores from Strapi
       const stores = await storeService.getValidStores();
       stats.totalStores = stores.length;
@@ -80,10 +95,23 @@ class SyncService {
       console.log('Multi-store sync completed successfully!');
       this.printStats(stats);
 
+      // Print Redis cache stats if enabled
+      if (config.redis.enabled && redisService.isReady()) {
+        const cacheStats = await redisService.getStats();
+        console.log('\nRedis Cache Statistics:');
+        console.log(`  Cached products: ${cacheStats.totalKeys}`);
+        console.log(`  Memory used: ${cacheStats.memoryUsed}`);
+      }
+
       return stats;
     } catch (error) {
       console.error('Error during sync process:', error);
       throw error;
+    } finally {
+      // Disconnect from Redis
+      if (config.redis.enabled && redisService.isReady()) {
+        await redisService.disconnect();
+      }
     }
   }
 
@@ -126,9 +154,9 @@ class SyncService {
       console.log(`Fetched ${products.length} products and ${discounts.length} discounts`);
 
       // Create a map of discount IDs to discount objects for quick lookup
-      const discountMap = new Map<string, DutchieDiscount>();
+      const discountMap = new Map<number, DutchieDiscount>();
       discounts.forEach((discount) => {
-        discountMap.set(discount.id, discount);
+        discountMap.set(discount.discountId, discount);
       });
 
       // Process each product and create product-discount pairs
@@ -139,15 +167,31 @@ class SyncService {
           continue; // Skip products with no discounts
         }
 
-        // Create a product-discount pair for each discount
-        for (const discountId of applicableDiscountIds) {
-          const discount = discountMap.get(discountId);
+        // Get all applicable discounts for this product
+        const applicableDiscounts = applicableDiscountIds
+          .map(id => discountMap.get(id))
+          .filter((d): d is DutchieDiscount => d !== undefined);
 
-          if (!discount) {
-            console.warn(`Discount ${discountId} not found for product ${product.id}`);
-            continue;
+        if (applicableDiscounts.length === 0) {
+          continue;
+        }
+
+        // Cache this product with its discounts in Redis
+        if (config.redis.enabled && redisService.isReady()) {
+          try {
+            await redisService.cacheProductDiscounts(
+              product,
+              applicableDiscounts,
+              store.id?.toString() || store.dutchieRetailerId,
+              store.name
+            );
+          } catch (error) {
+            console.error(`Error caching product ${product.productId}:`, error);
           }
+        }
 
+        // Create a product-discount pair for each discount (Strapi persistence)
+        for (const discount of applicableDiscounts) {
           storeStats.pairs++;
           globalStats.productDiscountPairs++;
 
@@ -165,7 +209,7 @@ class SyncService {
               globalStats.updated++;
             }
           } catch (error) {
-            console.error(`Error syncing product ${product.id} with discount ${discount.id}:`, error);
+            console.error(`Error syncing product ${product.productId} with discount ${discount.discountId}:`, error);
             storeStats.errors++;
             globalStats.errors++;
           }
@@ -189,44 +233,100 @@ class SyncService {
 
   /**
    * Get all discount IDs that apply to a given product
+   * Based on Dutchie's actual discount filter system
    */
   private getApplicableDiscounts(
     product: DutchieProduct,
     allDiscounts: DutchieDiscount[]
-  ): string[] {
-    const discountIds = new Set<string>();
+  ): number[] {
+    const discountIds = new Set<number>();
 
-    // Check if product has discounts directly attached
-    if (product.discounts && Array.isArray(product.discounts)) {
-      product.discounts.forEach((id) => discountIds.add(id));
-    }
-
-    // Check if any discounts apply to this product
     for (const discount of allDiscounts) {
       // Skip inactive discounts
       if (!discount.isActive) {
         continue;
       }
 
-      // Check if discount applies to this product
-      if (
-        discount.applicableProducts &&
-        Array.isArray(discount.applicableProducts) &&
-        discount.applicableProducts.includes(product.id)
-      ) {
-        discountIds.add(discount.id);
+      // Skip if product doesn't allow automatic discounts
+      if (product.allowAutomaticDiscounts === false) {
+        continue;
       }
 
-      // If no specific products listed, discount might apply to all products
-      // (Adjust this logic based on actual Dutchie API behavior)
-      if (
-        !discount.applicableProducts ||
-        discount.applicableProducts.length === 0
-      ) {
-        // Check if discount brand matches product brand
-        if (discount.brand && product.brand && discount.brand === product.brand) {
-          discountIds.add(discount.id);
+      // Check all discount filters
+      // Discount filters are objects with { ids: [...], isExclusion: bool } structure
+      let matchesAllFilters = true;
+
+      // Check specific products filter
+      if (discount.products && discount.products.ids && Array.isArray(discount.products.ids) && discount.products.ids.length > 0) {
+        const matches = discount.products.ids.includes(product.productId);
+        if (discount.products.isExclusion ? matches : !matches) {
+          matchesAllFilters = false;
         }
+      }
+
+      // Check brand filter
+      if (matchesAllFilters && discount.brands && discount.brands.ids && Array.isArray(discount.brands.ids) && discount.brands.ids.length > 0) {
+        if (!product.brandId) {
+          matchesAllFilters = false;
+        } else {
+          const matches = discount.brands.ids.includes(product.brandId);
+          if (discount.brands.isExclusion ? matches : !matches) {
+            matchesAllFilters = false;
+          }
+        }
+      }
+
+      // Check category filter (categoryId not category name)
+      if (matchesAllFilters && discount.productCategories && discount.productCategories.ids && Array.isArray(discount.productCategories.ids) && discount.productCategories.ids.length > 0) {
+        if (!product.categoryId) {
+          matchesAllFilters = false;
+        } else {
+          const matches = discount.productCategories.ids.includes(product.categoryId);
+          if (discount.productCategories.isExclusion ? matches : !matches) {
+            matchesAllFilters = false;
+          }
+        }
+      }
+
+      // Check vendor filter
+      if (matchesAllFilters && discount.vendors && discount.vendors.ids && Array.isArray(discount.vendors.ids) && discount.vendors.ids.length > 0) {
+        if (!product.vendorId) {
+          matchesAllFilters = false;
+        } else {
+          const matches = discount.vendors.ids.includes(product.vendorId);
+          if (discount.vendors.isExclusion ? matches : !matches) {
+            matchesAllFilters = false;
+          }
+        }
+      }
+
+      // Check strain filter
+      if (matchesAllFilters && discount.strains && discount.strains.ids && Array.isArray(discount.strains.ids) && discount.strains.ids.length > 0) {
+        if (!product.strainId) {
+          matchesAllFilters = false;
+        } else {
+          const matches = discount.strains.ids.includes(product.strainId);
+          if (discount.strains.isExclusion ? matches : !matches) {
+            matchesAllFilters = false;
+          }
+        }
+      }
+
+      // Check tags filter (tags might still be simple arrays)
+      if (matchesAllFilters && discount.tags && discount.tags.ids && Array.isArray(discount.tags.ids) && discount.tags.ids.length > 0) {
+        if (!product.tags || !Array.isArray(product.tags) || product.tags.length === 0) {
+          matchesAllFilters = false;
+        } else {
+          const hasMatchingTag = discount.tags.ids.some(tag => product.tags!.includes(tag));
+          if (discount.tags.isExclusion ? hasMatchingTag : !hasMatchingTag) {
+            matchesAllFilters = false;
+          }
+        }
+      }
+
+      // If all filters passed (or no filters were set), this discount applies
+      if (matchesAllFilters) {
+        discountIds.add(discount.discountId);
       }
     }
 
@@ -244,24 +344,24 @@ class SyncService {
   ): Promise<boolean> {
     // Check if this pair already exists in Strapi
     const existing = await strapiService.findProductDiscount(
-      product.id,
-      discount.id
+      product.productId.toString(),
+      discount.discountId.toString()
     );
 
     // Prepare the data
     const data: ProductDiscount = {
-      productName: product.name,
-      productDutchieId: product.id,
+      productName: product.productName,
+      productDutchieId: product.productId.toString(),
       productDescription: product.description || '',
-      productImageUrl: product.image || '',
-      productBrand: product.brand || '',
-      discountName: discount.name,
-      discountBrand: discount.brand || '',
-      discountImageUrl: discount.image || '',
-      discountStartTimestamp: this.normalizeTimestamp(discount.startTime),
-      discountEndTimestamp: this.normalizeTimestamp(discount.endTime),
+      productImageUrl: product.imageUrl || '',
+      productBrand: product.brandName || '',
+      discountName: discount.discountName,
+      discountBrand: '', // Discounts don't have a direct brand name field
+      discountImageUrl: '', // Discounts don't have image URLs in the API
+      discountStartTimestamp: this.normalizeTimestamp(discount.validFrom),
+      discountEndTimestamp: this.normalizeTimestamp(discount.validUntil),
       discountIsActive: discount.isActive,
-      discountDutchieId: discount.id,
+      discountDutchieId: discount.discountId.toString(),
       storeId: store.id?.toString() || store.dutchieRetailerId,
       storeName: store.name,
       storeLocation: store.location || '',
@@ -270,12 +370,12 @@ class SyncService {
     if (existing) {
       // Update existing entry
       await strapiService.updateProductDiscount(existing.id!, data);
-      console.log(`Updated: ${product.name} - ${discount.name}`);
+      console.log(`Updated: ${product.productName} - ${discount.discountName}`);
       return false;
     } else {
       // Create new entry
       await strapiService.createProductDiscount(data);
-      console.log(`Created: ${product.name} - ${discount.name}`);
+      console.log(`Created: ${product.productName} - ${discount.discountName}`);
       return true;
     }
   }

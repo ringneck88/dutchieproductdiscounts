@@ -19,10 +19,15 @@ class DutchieService {
 
   constructor(credentials: DutchieCredentials) {
     this.retailerId = credentials.retailerId;
+
+    // Dutchie API uses Basic Auth with format: "apikey:"
+    const basicAuthString = Buffer.from(`${credentials.apiKey}:`).toString('base64');
+
     this.client = axios.create({
       baseURL: config.dutchie.apiUrl,
       headers: {
-        'Authorization': `Bearer ${credentials.apiKey}`,
+        'Authorization': `Basic ${basicAuthString}`,
+        'Accept': 'text/plain',
         'Content-Type': 'application/json',
       },
     });
@@ -44,7 +49,7 @@ class DutchieService {
       console.log(`Fetching products from Dutchie API for retailer ${this.retailerId}...`);
       console.log(`  Looking back ${lookbackHours} hours (from ${fromDateUTC})`);
 
-      const response = await this.client.get<DutchieApiResponse<DutchieProduct[]>>(
+      const response = await this.client.get<DutchieProduct[]>(
         '/products',
         {
           params: {
@@ -54,8 +59,8 @@ class DutchieService {
         }
       );
 
-      // Handle different possible response structures
-      const products = response.data.data || response.data || [];
+      // Dutchie API returns array directly
+      const products = Array.isArray(response.data) ? response.data : [];
       console.log(`Fetched ${products.length} active products from Dutchie`);
 
       return products;
@@ -74,7 +79,7 @@ class DutchieService {
     try {
       console.log(`Fetching discounts from Dutchie API for retailer ${this.retailerId}...`);
 
-      const response = await this.client.get<DutchieApiResponse<DutchieDiscount[]>>(
+      const response = await this.client.get<DutchieDiscount[]>(
         '/discounts',
         {
           params: {
@@ -84,8 +89,8 @@ class DutchieService {
         }
       );
 
-      // Handle different possible response structures
-      const discounts = response.data.data || response.data || [];
+      // Dutchie API returns array directly
+      const discounts = Array.isArray(response.data) ? response.data : [];
       console.log(`Fetched ${discounts.length} discounts from Dutchie`);
 
       return discounts;
@@ -98,9 +103,9 @@ class DutchieService {
   /**
    * Fetch a specific product by ID
    */
-  async getProductById(productId: string): Promise<DutchieProduct | null> {
+  async getProductById(productId: number): Promise<DutchieProduct | null> {
     try {
-      const response = await this.client.get<DutchieApiResponse<DutchieProduct>>(
+      const response = await this.client.get<DutchieProduct>(
         `/products/${productId}`,
         {
           params: {
@@ -109,7 +114,7 @@ class DutchieService {
         }
       );
 
-      return response.data.data || response.data;
+      return response.data;
     } catch (error) {
       console.error(`Error fetching product ${productId}:`, error);
       return null;
@@ -119,9 +124,9 @@ class DutchieService {
   /**
    * Fetch a specific discount by ID
    */
-  async getDiscountById(discountId: string): Promise<DutchieDiscount | null> {
+  async getDiscountById(discountId: number): Promise<DutchieDiscount | null> {
     try {
-      const response = await this.client.get<DutchieApiResponse<DutchieDiscount>>(
+      const response = await this.client.get<DutchieDiscount>(
         `/discounts/${discountId}`,
         {
           params: {
@@ -131,7 +136,7 @@ class DutchieService {
         }
       );
 
-      return response.data.data || response.data;
+      return response.data;
     } catch (error) {
       console.error(`Error fetching discount ${discountId}:`, error);
       return null;
