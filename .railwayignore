@@ -1,0 +1,13 @@
+# Files to exclude from Railway deployment
+node_modules
+.git
+.env
+.env.local
+*.log
+*.md
+test-*.js
+generate-test-page.js
+dutchie-test-data.html
+analyze-discounts.js
+inspect-discount.js
+Dockerfile.multistage
