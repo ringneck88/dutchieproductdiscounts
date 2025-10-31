@@ -5,12 +5,11 @@
 nixPkgs = ["nodejs-18_x"]
 
 [phases.install]
-# Install ALL dependencies including devDependencies (needed for TypeScript build)
-# Railway sets NODE_ENV=production, so we must explicitly include dev deps
-cmds = ["npm ci --include=dev"]
+# TypeScript is now in regular dependencies, so standard install works
+cmds = ["npm ci"]
 
 [phases.build]
-cmds = ["npm run build", "npm prune --production"]
+cmds = ["npm run build"]
 
 [start]
 cmd = "npm start"
