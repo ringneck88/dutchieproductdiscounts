@@ -137,7 +137,7 @@ class SyncService {
       // Create a Dutchie service instance for this store
       const dutchieService = new DutchieService({
         apiKey: store.dutchieApiKey,
-        retailerId: store.dutchieRetailerId,
+        retailerId: store.DutchieStoreID,
       });
 
       // Fetch all products and discounts from Dutchie for this store
@@ -182,7 +182,7 @@ class SyncService {
             await redisService.cacheProductDiscounts(
               product,
               applicableDiscounts,
-              store.id?.toString() || store.dutchieRetailerId,
+              store.id?.toString() || store.DutchieStoreID,
               store.name
             );
           } catch (error) {
@@ -362,7 +362,7 @@ class SyncService {
       discountEndTimestamp: this.normalizeTimestamp(discount.validUntil),
       discountIsActive: discount.isActive,
       discountDutchieId: discount.discountId.toString(),
-      storeId: store.id?.toString() || store.dutchieRetailerId,
+      storeId: store.id?.toString() || store.DutchieStoreID,
       storeName: store.name,
       storeLocation: store.location || '',
     };

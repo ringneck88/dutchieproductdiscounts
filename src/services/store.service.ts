@@ -114,8 +114,8 @@ class StoreService {
       return false;
     }
 
-    if (!store.dutchieRetailerId) {
-      console.warn(`Store "${store.name}" is missing dutchieRetailerId`);
+    if (!store.DutchieStoreID) {
+      console.warn(`Store "${store.name}" is missing DutchieStoreID`);
       return false;
     }
 
