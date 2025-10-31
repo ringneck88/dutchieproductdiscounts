@@ -151,9 +151,10 @@ async function start() {
     console.log('✓ Connected to Redis');
 
     // Start Express server
-    app.listen(PORT, () => {
+    // Listen on 0.0.0.0 to accept connections from Railway's network
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`\n${'='.repeat(60)}`);
-      console.log(`🚀 Fast API Server running on http://localhost:${PORT}`);
+      console.log(`🚀 Fast API Server running on http://0.0.0.0:${PORT}`);
       console.log(`${'='.repeat(60)}`);
       console.log('\nAvailable endpoints:');
       console.log(`  GET  /health`);
