@@ -84,8 +84,9 @@ app.get('/api/cache/stats', async (req: Request, res: Response) => {
  * GET /api/products/discounts
  * Query params:
  *   - page: Page number (default: 1)
- *   - limit: Items per page (default: 20, max: 100)
+ *   - limit: Items per page (default: 100, max: 500)
  *   - maxDiscounts: Max discounts per product (default: 6)
+ *   - productsPerStore: Products per store (default: 6)
  */
 app.get('/api/products/discounts', async (req: Request, res: Response) => {
   try {
@@ -95,13 +96,32 @@ app.get('/api/products/discounts', async (req: Request, res: Response) => {
 
     // Parse pagination params
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit as string) || 100));
     const maxDiscounts = Math.max(1, parseInt(req.query.maxDiscounts as string) || 6);
+    const productsPerStore = Math.max(1, parseInt(req.query.productsPerStore as string) || 6);
 
     const allProducts = await redisService.getAllProductsWithDiscounts();
 
+    // Group products by store
+    const productsByStore = new Map<string, any[]>();
+    for (const product of allProducts) {
+      const storeId = product.storeId || 'unknown';
+      if (!productsByStore.has(storeId)) {
+        productsByStore.set(storeId, []);
+      }
+      productsByStore.get(storeId)!.push(product);
+    }
+
+    // Take N products from each store and combine
+    const balancedProducts: any[] = [];
+    productsByStore.forEach((products, storeId) => {
+      // Take first N products from this store
+      const storeProducts = products.slice(0, productsPerStore);
+      balancedProducts.push(...storeProducts);
+    });
+
     // Filter to best N discounts per product
-    const productsWithBestDiscounts = allProducts.map(product =>
+    const productsWithBestDiscounts = balancedProducts.map(product =>
       getBestDiscounts(product, maxDiscounts)
     );
 
@@ -117,9 +137,11 @@ app.get('/api/products/discounts', async (req: Request, res: Response) => {
     res.json({
       page,
       limit,
-      total: allProducts.length,
-      totalPages: Math.ceil(allProducts.length / limit),
+      total: balancedProducts.length,
+      totalPages: Math.ceil(balancedProducts.length / limit),
       count: paginatedProducts.length,
+      storesCount: productsByStore.size,
+      productsPerStore,
       data: paginatedProducts,
     });
   } catch (error) {
