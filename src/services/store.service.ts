@@ -28,15 +28,11 @@ class StoreService {
     try {
       console.log('Fetching active stores from Strapi...');
 
+      // Fetch all stores without filters (Strapi filter syntax may vary by version)
       const response = await this.client.get<StrapiCollectionResponse<StrapiStore>>(
         `/api/${this.COLLECTION_NAME}`,
         {
           params: {
-            filters: {
-              isActive: {
-                $eq: true,
-              },
-            },
             pagination: {
               pageSize: 100,
             },
@@ -44,12 +40,15 @@ class StoreService {
         }
       );
 
-      const stores = response.data.data.map((item) => ({
+      const allStores = response.data.data.map((item) => ({
         id: item.id,
         ...item.attributes,
       }));
 
-      console.log(`Found ${stores.length} active stores`);
+      // Filter for active stores in code
+      const stores = allStores.filter((store) => store.isActive === true || store.isActive === undefined);
+
+      console.log(`Found ${stores.length} active stores (out of ${allStores.length} total)`);
       return stores;
     } catch (error) {
       console.error('Error fetching stores from Strapi:', error);
