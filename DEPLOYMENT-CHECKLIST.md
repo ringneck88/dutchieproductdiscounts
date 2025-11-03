@@ -119,7 +119,7 @@ Fetched Y products and Z discounts
 Redis Cache Statistics:
   Cached products: ...
 ```
-
+  
 **✅ If you see this, sync service is working!**
 
 ---
