@@ -88,18 +88,13 @@ class StoreService {
    */
   async getStoreById(storeId: number): Promise<Store | null> {
     try {
-      const response = await this.client.get<{
-        data: {
-          id: number;
-          attributes?: StrapiStore;
-          [key: string]: any;
-        };
-      }>(`/api/${this.COLLECTION_NAME}/${storeId}`);
+      const response = await this.client.get(`/api/${this.COLLECTION_NAME}/${storeId}`);
 
+      const item = response.data.data;
       return {
-        id: response.data.data.id,
-        ...(response.data.data.attributes || response.data.data),
-      };
+        id: item.id,
+        ...(item.attributes || item),
+      } as Store;
     } catch (error) {
       console.error(`Error fetching store ${storeId}:`, error);
       return null;
