@@ -40,9 +40,10 @@ class StoreService {
         }
       );
 
+      // Map stores - handle both Strapi v4 (attributes) and v5 (flat) structure
       const allStores = response.data.data.map((item) => ({
         id: item.id,
-        ...item.attributes,
+        ...(item.attributes || item), // Use attributes if present, otherwise use item directly
       }));
 
       // Filter for active stores in code
@@ -74,7 +75,7 @@ class StoreService {
 
       return response.data.data.map((item) => ({
         id: item.id,
-        ...item.attributes,
+        ...(item.attributes || item),
       }));
     } catch (error) {
       console.error('Error fetching all stores from Strapi:', error);
@@ -90,13 +91,14 @@ class StoreService {
       const response = await this.client.get<{
         data: {
           id: number;
-          attributes: StrapiStore;
+          attributes?: StrapiStore;
+          [key: string]: any;
         };
       }>(`/api/${this.COLLECTION_NAME}/${storeId}`);
 
       return {
         id: response.data.data.id,
-        ...response.data.data.attributes,
+        ...(response.data.data.attributes || response.data.data),
       };
     } catch (error) {
       console.error(`Error fetching store ${storeId}:`, error);

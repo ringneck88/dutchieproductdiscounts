@@ -44,7 +44,7 @@ class StrapiService {
 
       return response.data.data.map((item) => ({
         id: item.id,
-        ...item.attributes,
+        ...(item.attributes || item),
       }));
     } catch (error) {
       console.error('Error fetching product discounts from Strapi:', error);
@@ -80,7 +80,7 @@ class StrapiService {
         const item = response.data.data[0];
         return {
           id: item.id,
-          ...item.attributes,
+          ...(item.attributes || item),
         };
       }
 
@@ -103,7 +103,7 @@ class StrapiService {
 
       return {
         id: response.data.data.id,
-        ...response.data.data.attributes,
+        ...(response.data.data.attributes || response.data.data),
       };
     } catch (error) {
       console.error('Error creating product discount:', error);
@@ -126,7 +126,7 @@ class StrapiService {
 
       return {
         id: response.data.data.id,
-        ...response.data.data.attributes,
+        ...(response.data.data.attributes || response.data.data),
       };
     } catch (error) {
       console.error(`Error updating product discount ${id}:`, error);
