@@ -5,6 +5,7 @@
 
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import redisService from './services/redis.service';
 import config from './config';
 
@@ -13,7 +14,42 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 
 // Middleware
 app.use(cors());
+app.use(compression()); // Enable gzip compression
 app.use(express.json());
+
+/**
+ * Helper function to get the top N best discounts
+ * Sorts by discount value (percentage or dollar amount)
+ */
+function getBestDiscounts(product: any, limit: number = 6): any {
+  if (!product.discounts || product.discounts.length === 0) {
+    return product;
+  }
+
+  // Sort discounts by value (percentage first, then dollar amount)
+  const sortedDiscounts = [...product.discounts].sort((a, b) => {
+    // Calculate discount values for comparison
+    const aValue = parseFloat(a.discountName?.match(/(\d+)%/)?.[1] || '0');
+    const bValue = parseFloat(b.discountName?.match(/(\d+)%/)?.[1] || '0');
+
+    if (aValue !== bValue) {
+      return bValue - aValue; // Higher percentage first
+    }
+
+    // If percentages are equal, compare dollar amounts
+    const aDollar = parseFloat(a.discountName?.match(/\$(\d+\.?\d*)/)?.[1] || '0');
+    const bDollar = parseFloat(b.discountName?.match(/\$(\d+\.?\d*)/)?.[1] || '0');
+
+    return bDollar - aDollar; // Higher dollar amount first
+  });
+
+  return {
+    ...product,
+    discounts: sortedDiscounts.slice(0, limit),
+    totalDiscounts: product.discounts.length,
+    showingTop: Math.min(limit, product.discounts.length),
+  };
+}
 
 /**
  * Health check endpoint
@@ -46,6 +82,10 @@ app.get('/api/cache/stats', async (req: Request, res: Response) => {
 /**
  * Get all products with discounts (all stores)
  * GET /api/products/discounts
+ * Query params:
+ *   - page: Page number (default: 1)
+ *   - limit: Items per page (default: 20, max: 100)
+ *   - maxDiscounts: Max discounts per product (default: 6)
  */
 app.get('/api/products/discounts', async (req: Request, res: Response) => {
   try {
@@ -53,11 +93,34 @@ app.get('/api/products/discounts', async (req: Request, res: Response) => {
       return res.status(503).json({ error: 'Redis cache not available' });
     }
 
-    const products = await redisService.getAllProductsWithDiscounts();
+    // Parse pagination params
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const maxDiscounts = Math.max(1, parseInt(req.query.maxDiscounts as string) || 6);
+
+    const allProducts = await redisService.getAllProductsWithDiscounts();
+
+    // Filter to best N discounts per product
+    const productsWithBestDiscounts = allProducts.map(product =>
+      getBestDiscounts(product, maxDiscounts)
+    );
+
+    // Apply pagination
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + limit;
+    const paginatedProducts = productsWithBestDiscounts.slice(startIndex, endIndex);
+
+    // Set cache headers (cache for 5 minutes)
+    res.set('Cache-Control', 'public, max-age=300');
+    res.set('ETag', `"${Date.now()}"`);
 
     res.json({
-      count: products.length,
-      data: products,
+      page,
+      limit,
+      total: allProducts.length,
+      totalPages: Math.ceil(allProducts.length / limit),
+      count: paginatedProducts.length,
+      data: paginatedProducts,
     });
   } catch (error) {
     console.error('Error getting products:', error);
@@ -68,6 +131,10 @@ app.get('/api/products/discounts', async (req: Request, res: Response) => {
 /**
  * Get products with discounts for a specific store
  * GET /api/stores/:storeId/products/discounts
+ * Query params:
+ *   - page: Page number (default: 1)
+ *   - limit: Items per page (default: 20, max: 100)
+ *   - maxDiscounts: Max discounts per product (default: 6)
  */
 app.get('/api/stores/:storeId/products/discounts', async (req: Request, res: Response) => {
   try {
@@ -76,12 +143,36 @@ app.get('/api/stores/:storeId/products/discounts', async (req: Request, res: Res
     }
 
     const { storeId } = req.params;
-    const products = await redisService.getStoreProductsWithDiscounts(storeId);
+
+    // Parse pagination params
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const maxDiscounts = Math.max(1, parseInt(req.query.maxDiscounts as string) || 6);
+
+    const allProducts = await redisService.getStoreProductsWithDiscounts(storeId);
+
+    // Filter to best N discounts per product
+    const productsWithBestDiscounts = allProducts.map(product =>
+      getBestDiscounts(product, maxDiscounts)
+    );
+
+    // Apply pagination
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + limit;
+    const paginatedProducts = productsWithBestDiscounts.slice(startIndex, endIndex);
+
+    // Set cache headers (cache for 5 minutes)
+    res.set('Cache-Control', 'public, max-age=300');
+    res.set('ETag', `"${Date.now()}"`);
 
     res.json({
       storeId,
-      count: products.length,
-      data: products,
+      page,
+      limit,
+      total: allProducts.length,
+      totalPages: Math.ceil(allProducts.length / limit),
+      count: paginatedProducts.length,
+      data: paginatedProducts,
     });
   } catch (error) {
     console.error('Error getting store products:', error);
@@ -92,6 +183,8 @@ app.get('/api/stores/:storeId/products/discounts', async (req: Request, res: Res
 /**
  * Get a specific product with discounts
  * GET /api/stores/:storeId/products/:productId
+ * Query params:
+ *   - maxDiscounts: Max discounts to return (default: 6)
  */
 app.get('/api/stores/:storeId/products/:productId', async (req: Request, res: Response) => {
   try {
@@ -100,13 +193,22 @@ app.get('/api/stores/:storeId/products/:productId', async (req: Request, res: Re
     }
 
     const { storeId, productId } = req.params;
+    const maxDiscounts = Math.max(1, parseInt(req.query.maxDiscounts as string) || 6);
+
     const product = await redisService.getProductDiscounts(storeId, parseInt(productId));
 
     if (!product) {
       return res.status(404).json({ error: 'Product not found or has no discounts' });
     }
 
-    res.json(product);
+    // Filter to best N discounts
+    const productWithBestDiscounts = getBestDiscounts(product, maxDiscounts);
+
+    // Set cache headers (cache for 5 minutes)
+    res.set('Cache-Control', 'public, max-age=300');
+    res.set('ETag', `"${Date.now()}"`);
+
+    res.json(productWithBestDiscounts);
   } catch (error) {
     console.error('Error getting product:', error);
     res.status(500).json({ error: 'Failed to fetch product' });
