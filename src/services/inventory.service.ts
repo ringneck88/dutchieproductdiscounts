@@ -63,6 +63,9 @@ interface StrapiInventory {
   masterCategory?: string;
   effectivePotencyMg?: number;
   isCannabis?: boolean;
+  storeId?: number;
+  storeName?: string;
+  DutchieStoreID?: string;
 }
 
 class InventoryService {

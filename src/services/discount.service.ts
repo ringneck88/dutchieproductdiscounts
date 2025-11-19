@@ -41,6 +41,7 @@ interface StrapiDiscount {
   inventoryTags?: any;
   customerTypes?: any;
   discountGroups?: any;
+  stores?: any;
 }
 
 class DiscountService {
