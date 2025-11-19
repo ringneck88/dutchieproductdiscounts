@@ -113,11 +113,12 @@ class StrapiService {
 
   /**
    * Update an existing product discount entry in Strapi
+   * Returns null if the record doesn't exist (404) - caller should create instead
    */
   async updateProductDiscount(
     id: number,
     data: Partial<ProductDiscount>
-  ): Promise<StrapiProductDiscount> {
+  ): Promise<StrapiProductDiscount | null> {
     try {
       const response = await this.client.put<StrapiSingleResponse<StrapiProductDiscount>>(
         `/api/${this.COLLECTION_NAME}/${id}`,
@@ -128,7 +129,12 @@ class StrapiService {
         id: response.data.data.id,
         ...(response.data.data.attributes || response.data.data),
       };
-    } catch (error) {
+    } catch (error: any) {
+      // If record doesn't exist (404), return null so caller can create it
+      if (error.response?.status === 404) {
+        console.log(`Product discount ${id} not found, will create new record`);
+        return null;
+      }
       console.error(`Error updating product discount ${id}:`, error);
       throw new Error(`Failed to update product discount: ${error}`);
     }

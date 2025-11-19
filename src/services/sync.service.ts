@@ -370,7 +370,15 @@ class SyncService {
 
     if (existing) {
       // Update existing entry
-      await strapiService.updateProductDiscount(existing.id!, data);
+      const updated = await strapiService.updateProductDiscount(existing.id!, data);
+
+      // If update returns null (record was deleted), create a new one
+      if (updated === null) {
+        await strapiService.createProductDiscount(data);
+        console.log(`Created (after 404): ${product.productName} - ${discount.discountName}`);
+        return true;
+      }
+
       console.log(`Updated: ${product.productName} - ${discount.discountName}`);
       return false;
     } else {
