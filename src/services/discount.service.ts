@@ -103,12 +103,26 @@ class DiscountService {
       };
 
       if (existingDiscount) {
-        // Update existing discount
-        await this.client.put(
-          `/api/${this.COLLECTION_NAME}/${existingDiscount.id}`,
-          { data: mappedData }
-        );
-        console.log(`   ✓ Updated discount: ${discountData.discountName} (ID: ${discountData.discountId})`);
+        // Try to update existing discount
+        try {
+          await this.client.put(
+            `/api/${this.COLLECTION_NAME}/${existingDiscount.id}`,
+            { data: mappedData }
+          );
+          console.log(`   ✓ Updated discount: ${discountData.discountName} (ID: ${discountData.discountId})`);
+        } catch (updateError: any) {
+          // If record was deleted (404), create a new one
+          if (updateError.response?.status === 404) {
+            console.log(`   Discount ${existingDiscount.id} not found, creating new record`);
+            await this.client.post(
+              `/api/${this.COLLECTION_NAME}`,
+              { data: mappedData }
+            );
+            console.log(`   ✓ Created discount (after 404): ${discountData.discountName} (ID: ${discountData.discountId})`);
+          } else {
+            throw updateError;
+          }
+        }
       } else {
         // Create new discount
         await this.client.post(
