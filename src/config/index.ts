@@ -29,10 +29,10 @@ const config: Config = {
   dutchie: {
     // API keys and retailer IDs now come from Strapi store collection
     apiUrl: process.env.DUTCHIE_API_URL || 'https://api.pos.dutchie.com',
-    // Default to 24 hours for product lookback (adjust based on sync frequency)
+    // Default to 2160 hours (90 days) for product lookback to capture recent modifications
     productLookbackHours: process.env.DUTCHIE_PRODUCT_LOOKBACK_HOURS
       ? parseInt(process.env.DUTCHIE_PRODUCT_LOOKBACK_HOURS, 10)
-      : 24,
+      : 2160,
   },
   strapi: {
     apiUrl: process.env.STRAPI_API_URL || 'http://localhost:1337',
