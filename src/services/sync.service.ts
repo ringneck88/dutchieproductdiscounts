@@ -479,12 +479,32 @@ class SyncService {
           });
 
           // Fetch discounts from Dutchie Reporting API
-          const discounts = await dutchieService.getReportingDiscounts();
-          console.log(`  Fetched ${discounts.length} discounts from Dutchie`);
-          stats.totalDiscounts += discounts.length;
+          const allDiscounts = await dutchieService.getReportingDiscounts();
+          console.log(`  Fetched ${allDiscounts.length} total discounts from Dutchie`);
 
-          // Sync each discount to Strapi
-          for (const discount of discounts) {
+          // Filter out inactive, deleted, and expired discounts
+          const now = new Date();
+          const activeDiscounts = allDiscounts.filter(discount => {
+            // Skip if not active
+            if (discount.isActive === false) return false;
+
+            // Skip if deleted
+            if (discount.isDeleted === true) return false;
+
+            // Skip if expired (validUntil is in the past)
+            if (discount.validUntil) {
+              const validUntil = new Date(discount.validUntil);
+              if (validUntil < now) return false;
+            }
+
+            return true;
+          });
+
+          console.log(`  Filtered to ${activeDiscounts.length} active, non-deleted, non-expired discounts`);
+          stats.totalDiscounts += activeDiscounts.length;
+
+          // Sync each active discount to Strapi
+          for (const discount of activeDiscounts) {
             try {
               await discountService.upsertDiscount(discount);
               allActiveDiscountIds.push(discount.discountId);
