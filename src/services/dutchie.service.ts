@@ -166,6 +166,28 @@ class DutchieService {
   }
 
   /**
+   * Fetch all inventory from Dutchie Reporting API
+   * Endpoint: GET /reporting/inventory
+   * This endpoint provides comprehensive inventory data including all fields
+   */
+  async getReportingInventory(): Promise<any[]> {
+    try {
+      console.log(`Fetching inventory from Dutchie Reporting API for retailer ${this.retailerId}...`);
+
+      const response = await this.client.get<any[]>('/reporting/inventory');
+
+      // Dutchie API returns array directly
+      const inventory = Array.isArray(response.data) ? response.data : [];
+      console.log(`Fetched ${inventory.length} inventory items from Dutchie Reporting API`);
+
+      return inventory;
+    } catch (error) {
+      console.error('Error fetching inventory from Dutchie Reporting API:', error);
+      throw new Error(`Failed to fetch reporting inventory: ${error}`);
+    }
+  }
+
+  /**
    * Get all products that have active discounts
    * Returns products with their associated discount IDs
    */

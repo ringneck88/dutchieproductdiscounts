@@ -15,16 +15,17 @@ async function main() {
     validateConfig();
     console.log('Configuration valid!\n');
 
-    // Run both syncs in parallel for better performance
-    console.log('Starting parallel sync: product-discounts AND discounts...\n');
+    // Run all three syncs in parallel for better performance
+    console.log('Starting parallel sync: product-discounts, discounts, AND inventory...\n');
 
-    const [productDiscountStats, discountStats] = await Promise.all([
+    const [productDiscountStats, discountStats, inventoryStats] = await Promise.all([
       syncService.sync(),
-      syncService.syncDiscounts()
+      syncService.syncDiscounts(),
+      syncService.syncInventory()
     ]);
 
     console.log('\n' + '='.repeat(50));
-    console.log('✅ Both syncs completed!');
+    console.log('✅ All syncs completed!');
     console.log('='.repeat(50));
 
     // If sync interval is configured, run periodically
@@ -37,7 +38,8 @@ async function main() {
         try {
           await Promise.all([
             syncService.sync(),
-            syncService.syncDiscounts()
+            syncService.syncDiscounts(),
+            syncService.syncInventory()
           ]);
           console.log('✅ Scheduled sync completed!');
         } catch (error) {

@@ -9,6 +9,7 @@ import strapiService from './strapi.service';
 import storeService from './store.service';
 import redisService from './redis.service';
 import DiscountService from './discount.service';
+import InventoryService from './inventory.service';
 import config from '../config';
 import { DutchieProduct, DutchieDiscount, ProductDiscount, Store } from '../types';
 
@@ -537,6 +538,102 @@ class SyncService {
       return stats;
     } catch (error) {
       console.error('Error during discount sync process:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Sync inventory from Dutchie Reporting API to Strapi
+   * Fetches inventory data from /reporting/inventory endpoint for all stores
+   */
+  async syncInventory(): Promise<{
+    totalStores: number;
+    totalInventory: number;
+    created: number;
+    updated: number;
+    deleted: number;
+    errors: number;
+  }> {
+    console.log('\n🔄 Starting inventory sync from Dutchie /reporting/inventory...');
+    console.log('='.repeat(50));
+
+    const stats = {
+      totalStores: 0,
+      totalInventory: 0,
+      created: 0,
+      updated: 0,
+      deleted: 0,
+      errors: 0,
+    };
+
+    try {
+      const inventoryService = new InventoryService();
+
+      // Fetch all valid stores from Strapi
+      const stores = await storeService.getValidStores();
+      stats.totalStores = stores.length;
+
+      console.log(`Found ${stores.length} active stores to sync\n`);
+
+      if (stores.length === 0) {
+        console.warn('No active stores found with valid Dutchie credentials!');
+        return stats;
+      }
+
+      const allActiveInventoryIds: number[] = [];
+
+      // Sync inventory for each store
+      for (const store of stores) {
+        console.log(`\nSyncing inventory for store: ${store.name}`);
+        console.log('-'.repeat(50));
+
+        try {
+          // Create Dutchie service instance for this store
+          const dutchieService = new DutchieService({
+            apiKey: store.dutchieApiKey,
+            retailerId: store.DutchieStoreID,
+          });
+
+          // Fetch inventory from Dutchie Reporting API
+          const inventory = await dutchieService.getReportingInventory();
+          console.log(`  Fetched ${inventory.length} inventory items from Dutchie`);
+
+          stats.totalInventory += inventory.length;
+
+          // Sync each inventory item to Strapi
+          for (const item of inventory) {
+            try {
+              await inventoryService.upsertInventory(item);
+              allActiveInventoryIds.push(item.inventoryId);
+            } catch (error) {
+              console.error(`  Error syncing inventory ${item.inventoryId}:`, error);
+              stats.errors++;
+            }
+          }
+
+          console.log(`  ✓ Completed sync for ${store.name}`);
+        } catch (error) {
+          console.error(`  Error syncing store "${store.name}":`, error);
+          stats.errors++;
+        }
+      }
+
+      // Clean up inventory items that are no longer active
+      console.log('\nCleaning up inactive inventory...');
+      const deleted = await inventoryService.deleteInactiveInventory(allActiveInventoryIds);
+      stats.deleted = deleted;
+
+      console.log('\n' + '='.repeat(50));
+      console.log('✅ Inventory sync completed!');
+      console.log('\nInventory Sync Statistics:');
+      console.log(`  Total stores synced: ${stats.totalStores}`);
+      console.log(`  Total inventory items fetched: ${stats.totalInventory}`);
+      console.log(`  Deleted inactive: ${stats.deleted}`);
+      console.log(`  Errors: ${stats.errors}`);
+
+      return stats;
+    } catch (error) {
+      console.error('Error during inventory sync process:', error);
       throw error;
     }
   }
