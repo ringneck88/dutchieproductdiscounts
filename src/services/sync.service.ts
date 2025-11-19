@@ -210,6 +210,11 @@ class SyncService {
               storeStats.updated++;
               globalStats.updated++;
             }
+
+            // Log progress every 200 pairs to avoid rate limiting
+            if (storeStats.pairs % 200 === 0) {
+              console.log(`  Progress: ${storeStats.pairs} pairs synced (${storeStats.created} created, ${storeStats.updated} updated)`);
+            }
           } catch (error) {
             console.error(`Error syncing product ${product.productId} with discount ${discount.discountId}:`, error);
             storeStats.errors++;
@@ -376,16 +381,13 @@ class SyncService {
       // If update returns null (record was deleted), create a new one
       if (updated === null) {
         await strapiService.createProductDiscount(data);
-        console.log(`Created (after 404): ${product.productName} - ${discount.discountName}`);
         return true;
       }
 
-      console.log(`Updated: ${product.productName} - ${discount.discountName}`);
       return false;
     } else {
       // Create new entry
       await strapiService.createProductDiscount(data);
-      console.log(`Created: ${product.productName} - ${discount.discountName}`);
       return true;
     }
   }
