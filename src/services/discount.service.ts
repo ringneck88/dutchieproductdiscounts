@@ -132,24 +132,42 @@ class DiscountService {
           // If unique constraint violation (discount already exists), find and update it
           if (createError.response?.status === 400 &&
               createError.response?.data?.error?.message?.includes('unique')) {
+
+            // Race condition: Another process created this discount between our check and create attempt
+            // Wait a moment for database to sync, then retry finding it
+            await new Promise(resolve => setTimeout(resolve, 100));
+
             const existing = await this.findDiscountByDutchieId(discountData.discountId);
             if (existing) {
-              await this.client.put(
-                `/api/${this.COLLECTION_NAME}/${existing.id}`,
-                { data: mappedData }
-              );
-            } else {
-              throw createError;
+              try {
+                await this.client.put(
+                  `/api/${this.COLLECTION_NAME}/${existing.id}`,
+                  { data: mappedData }
+                );
+              } catch (updateError: any) {
+                // If update also fails, another process is handling this discount - skip silently
+                if (updateError.response?.status !== 404) {
+                  // Log non-404 errors for debugging
+                  console.error(`Error updating discount ${discountData.discountId} after unique constraint:`, updateError.response?.data || updateError.message);
+                }
+              }
             }
+            // If we still can't find it, another process must have created it - skip silently
+            // Don't throw error since the discount exists in Strapi (created by parallel process)
           } else {
             throw createError;
           }
         }
       }
     } catch (error: any) {
-      // Only log errors, not successes
-      console.error(`Error upserting discount ${discountData.discountId}:`, error.response?.data || error.message);
-      throw error;
+      // Only log and re-throw non-unique-constraint errors
+      // Unique constraint errors are handled above and shouldn't reach here
+      if (!(error.response?.status === 400 &&
+            error.response?.data?.error?.message?.includes('unique'))) {
+        console.error(`Error upserting discount ${discountData.discountId}:`, error.response?.data || error.message);
+        throw error;
+      }
+      // Silently skip unique constraint errors - discount was created by parallel process
     }
   }
 

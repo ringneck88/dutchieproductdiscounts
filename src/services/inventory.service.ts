@@ -176,24 +176,38 @@ class InventoryService {
           // If unique constraint violation (inventory already exists), find and update it
           if (createError.response?.status === 400 &&
               createError.response?.data?.error?.message?.includes('unique')) {
+
+            // Race condition: Wait a moment for database to sync, then retry finding it
+            await new Promise(resolve => setTimeout(resolve, 100));
+
             const existing = await this.findInventoryByDutchieId(inventoryData.inventoryId);
             if (existing) {
-              await this.client.put(
-                `/api/${this.COLLECTION_NAME}/${existing.id}`,
-                { data: mappedData }
-              );
-            } else {
-              throw createError;
+              try {
+                await this.client.put(
+                  `/api/${this.COLLECTION_NAME}/${existing.id}`,
+                  { data: mappedData }
+                );
+              } catch (updateError: any) {
+                // If update also fails, skip silently unless it's a real error
+                if (updateError.response?.status !== 404) {
+                  console.error(`Error updating inventory ${inventoryData.inventoryId} after unique constraint:`, updateError.response?.data || updateError.message);
+                }
+              }
             }
+            // If we still can't find it, skip silently - another process created it
           } else {
             throw createError;
           }
         }
       }
     } catch (error: any) {
-      // Only log errors, not successes
-      console.error(`Error upserting inventory ${inventoryData.inventoryId}:`, error.response?.data || error.message);
-      throw error;
+      // Only log and re-throw non-unique-constraint errors
+      if (!(error.response?.status === 400 &&
+            error.response?.data?.error?.message?.includes('unique'))) {
+        console.error(`Error upserting inventory ${inventoryData.inventoryId}:`, error.response?.data || error.message);
+        throw error;
+      }
+      // Silently skip unique constraint errors - inventory was created by parallel process
     }
   }
 
