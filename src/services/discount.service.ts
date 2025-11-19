@@ -125,11 +125,31 @@ class DiscountService {
         }
       } else {
         // Create new discount
-        await this.client.post(
-          `/api/${this.COLLECTION_NAME}`,
-          { data: mappedData }
-        );
-        console.log(`   ✓ Created discount: ${discountData.discountName} (ID: ${discountData.discountId})`);
+        try {
+          await this.client.post(
+            `/api/${this.COLLECTION_NAME}`,
+            { data: mappedData }
+          );
+          console.log(`   ✓ Created discount: ${discountData.discountName} (ID: ${discountData.discountId})`);
+        } catch (createError: any) {
+          // If unique constraint violation (discount already exists), find and update it
+          if (createError.response?.status === 400 &&
+              createError.response?.data?.error?.message?.includes('unique')) {
+            console.log(`   Discount ${discountData.discountId} already exists, finding and updating...`);
+            const existing = await this.findDiscountByDutchieId(discountData.discountId);
+            if (existing) {
+              await this.client.put(
+                `/api/${this.COLLECTION_NAME}/${existing.id}`,
+                { data: mappedData }
+              );
+              console.log(`   ✓ Updated discount (after unique error): ${discountData.discountName} (ID: ${discountData.discountId})`);
+            } else {
+              throw createError; // If still can't find it, throw original error
+            }
+          } else {
+            throw createError;
+          }
+        }
       }
     } catch (error: any) {
       console.error(`Error upserting discount ${discountData.discountId}:`, error.response?.data || error.message);
