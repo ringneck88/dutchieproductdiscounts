@@ -60,6 +60,7 @@ class DiscountService {
   /**
    * Create or update a discount in Strapi
    * Uses discountId as unique identifier
+   * Note: Logging removed to prevent Railway rate limiting
    */
   async upsertDiscount(discountData: any): Promise<void> {
     try {
@@ -109,16 +110,13 @@ class DiscountService {
             `/api/${this.COLLECTION_NAME}/${existingDiscount.id}`,
             { data: mappedData }
           );
-          console.log(`   ✓ Updated discount: ${discountData.discountName} (ID: ${discountData.discountId})`);
         } catch (updateError: any) {
           // If record was deleted (404), create a new one
           if (updateError.response?.status === 404) {
-            console.log(`   Discount ${existingDiscount.id} not found, creating new record`);
             await this.client.post(
               `/api/${this.COLLECTION_NAME}`,
               { data: mappedData }
             );
-            console.log(`   ✓ Created discount (after 404): ${discountData.discountName} (ID: ${discountData.discountId})`);
           } else {
             throw updateError;
           }
@@ -130,21 +128,18 @@ class DiscountService {
             `/api/${this.COLLECTION_NAME}`,
             { data: mappedData }
           );
-          console.log(`   ✓ Created discount: ${discountData.discountName} (ID: ${discountData.discountId})`);
         } catch (createError: any) {
           // If unique constraint violation (discount already exists), find and update it
           if (createError.response?.status === 400 &&
               createError.response?.data?.error?.message?.includes('unique')) {
-            console.log(`   Discount ${discountData.discountId} already exists, finding and updating...`);
             const existing = await this.findDiscountByDutchieId(discountData.discountId);
             if (existing) {
               await this.client.put(
                 `/api/${this.COLLECTION_NAME}/${existing.id}`,
                 { data: mappedData }
               );
-              console.log(`   ✓ Updated discount (after unique error): ${discountData.discountName} (ID: ${discountData.discountId})`);
             } else {
-              throw createError; // If still can't find it, throw original error
+              throw createError;
             }
           } else {
             throw createError;
@@ -152,6 +147,7 @@ class DiscountService {
         }
       }
     } catch (error: any) {
+      // Only log errors, not successes
       console.error(`Error upserting discount ${discountData.discountId}:`, error.response?.data || error.message);
       throw error;
     }

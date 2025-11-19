@@ -504,18 +504,25 @@ class SyncService {
           console.log(`  Filtered to ${activeDiscounts.length} active, non-deleted, non-expired discounts`);
           stats.totalDiscounts += activeDiscounts.length;
 
-          // Sync each active discount to Strapi
+          // Sync each active discount to Strapi with batched progress logging
+          let processedCount = 0;
           for (const discount of activeDiscounts) {
             try {
               await discountService.upsertDiscount(discount);
               allActiveDiscountIds.push(discount.discountId);
+              processedCount++;
+
+              // Log progress every 50 items to avoid rate limiting
+              if (processedCount % 50 === 0) {
+                console.log(`  Progress: ${processedCount}/${activeDiscounts.length} discounts synced`);
+              }
             } catch (error) {
               console.error(`  Error syncing discount ${discount.discountId}:`, error);
               stats.errors++;
             }
           }
 
-          console.log(`  ✓ Completed sync for ${store.name}`);
+          console.log(`  ✓ Completed sync for ${store.name}: ${processedCount} discounts`);
         } catch (error) {
           console.error(`  Error syncing store "${store.name}":`, error);
           stats.errors++;
@@ -600,18 +607,25 @@ class SyncService {
 
           stats.totalInventory += inventory.length;
 
-          // Sync each inventory item to Strapi
+          // Sync each inventory item to Strapi with batched progress logging
+          let processedCount = 0;
           for (const item of inventory) {
             try {
               await inventoryService.upsertInventory(item);
               allActiveInventoryIds.push(item.inventoryId);
+              processedCount++;
+
+              // Log progress every 100 items to avoid rate limiting
+              if (processedCount % 100 === 0) {
+                console.log(`  Progress: ${processedCount}/${inventory.length} items synced`);
+              }
             } catch (error) {
               console.error(`  Error syncing inventory ${item.inventoryId}:`, error);
               stats.errors++;
             }
           }
 
-          console.log(`  ✓ Completed sync for ${store.name}`);
+          console.log(`  ✓ Completed sync for ${store.name}: ${processedCount} items`);
         } catch (error) {
           console.error(`  Error syncing store "${store.name}":`, error);
           stats.errors++;

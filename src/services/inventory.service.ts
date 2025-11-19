@@ -82,6 +82,7 @@ class InventoryService {
   /**
    * Create or update an inventory item in Strapi
    * Uses inventoryId as unique identifier
+   * Note: Logging removed to prevent Railway rate limiting
    */
   async upsertInventory(inventoryData: any): Promise<void> {
     try {
@@ -153,16 +154,13 @@ class InventoryService {
             `/api/${this.COLLECTION_NAME}/${existingInventory.id}`,
             { data: mappedData }
           );
-          console.log(`   ✓ Updated inventory: ${inventoryData.productName} (ID: ${inventoryData.inventoryId})`);
         } catch (updateError: any) {
           // If record was deleted (404), create a new one
           if (updateError.response?.status === 404) {
-            console.log(`   Inventory ${existingInventory.id} not found, creating new record`);
             await this.client.post(
               `/api/${this.COLLECTION_NAME}`,
               { data: mappedData }
             );
-            console.log(`   ✓ Created inventory (after 404): ${inventoryData.productName} (ID: ${inventoryData.inventoryId})`);
           } else {
             throw updateError;
           }
@@ -174,21 +172,18 @@ class InventoryService {
             `/api/${this.COLLECTION_NAME}`,
             { data: mappedData }
           );
-          console.log(`   ✓ Created inventory: ${inventoryData.productName} (ID: ${inventoryData.inventoryId})`);
         } catch (createError: any) {
           // If unique constraint violation (inventory already exists), find and update it
           if (createError.response?.status === 400 &&
               createError.response?.data?.error?.message?.includes('unique')) {
-            console.log(`   Inventory ${inventoryData.inventoryId} already exists, finding and updating...`);
             const existing = await this.findInventoryByDutchieId(inventoryData.inventoryId);
             if (existing) {
               await this.client.put(
                 `/api/${this.COLLECTION_NAME}/${existing.id}`,
                 { data: mappedData }
               );
-              console.log(`   ✓ Updated inventory (after unique error): ${inventoryData.productName} (ID: ${inventoryData.inventoryId})`);
             } else {
-              throw createError; // If still can't find it, throw original error
+              throw createError;
             }
           } else {
             throw createError;
@@ -196,6 +191,7 @@ class InventoryService {
         }
       }
     } catch (error: any) {
+      // Only log errors, not successes
       console.error(`Error upserting inventory ${inventoryData.inventoryId}:`, error.response?.data || error.message);
       throw error;
     }

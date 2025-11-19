@@ -132,7 +132,6 @@ class StrapiService {
     } catch (error: any) {
       // If record doesn't exist (404), return null so caller can create it
       if (error.response?.status === 404) {
-        console.log(`Product discount ${id} not found, will create new record`);
         return null;
       }
       console.error(`Error updating product discount ${id}:`, error);
@@ -146,7 +145,6 @@ class StrapiService {
   async deleteProductDiscount(id: number): Promise<void> {
     try {
       await this.client.delete(`/api/${this.COLLECTION_NAME}/${id}`);
-      console.log(`Deleted product discount ${id}`);
     } catch (error) {
       console.error(`Error deleting product discount ${id}:`, error);
       throw new Error(`Failed to delete product discount: ${error}`);
