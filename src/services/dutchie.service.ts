@@ -144,6 +144,28 @@ class DutchieService {
   }
 
   /**
+   * Fetch all discounts from Dutchie Reporting API
+   * Endpoint: GET /reporting/discounts
+   * This endpoint provides comprehensive discount data including all fields
+   */
+  async getReportingDiscounts(): Promise<any[]> {
+    try {
+      console.log(`Fetching discounts from Dutchie Reporting API for retailer ${this.retailerId}...`);
+
+      const response = await this.client.get<any[]>('/reporting/discounts');
+
+      // Dutchie API returns array directly
+      const discounts = Array.isArray(response.data) ? response.data : [];
+      console.log(`Fetched ${discounts.length} discounts from Dutchie Reporting API`);
+
+      return discounts;
+    } catch (error) {
+      console.error('Error fetching discounts from Dutchie Reporting API:', error);
+      throw new Error(`Failed to fetch reporting discounts: ${error}`);
+    }
+  }
+
+  /**
    * Get all products that have active discounts
    * Returns products with their associated discount IDs
    */

@@ -8,6 +8,7 @@ import DutchieService from './dutchie.service';
 import strapiService from './strapi.service';
 import storeService from './store.service';
 import redisService from './redis.service';
+import DiscountService from './discount.service';
 import config from '../config';
 import { DutchieProduct, DutchieDiscount, ProductDiscount, Store } from '../types';
 
@@ -414,6 +415,101 @@ class SyncService {
           console.log(`    Errors: ${storeStats.errors}`);
         }
       });
+    }
+  }
+
+  /**
+   * Sync discounts from Dutchie /reporting/discounts endpoint to Strapi
+   * This syncs full discount data including all fields and metadata
+   */
+  async syncDiscounts(): Promise<{
+    totalStores: number;
+    totalDiscounts: number;
+    created: number;
+    updated: number;
+    deleted: number;
+    errors: number;
+  }> {
+    console.log('\n🔄 Starting discount sync from Dutchie /reporting/discounts...');
+    console.log('='.repeat(50));
+
+    const stats = {
+      totalStores: 0,
+      totalDiscounts: 0,
+      created: 0,
+      updated: 0,
+      deleted: 0,
+      errors: 0,
+    };
+
+    try {
+      const discountService = new DiscountService();
+
+      // Fetch all valid stores from Strapi
+      const stores = await storeService.getValidStores();
+      stats.totalStores = stores.length;
+
+      console.log(`Found ${stores.length} active stores to sync\n`);
+
+      if (stores.length === 0) {
+        console.warn('No active stores found with valid Dutchie credentials!');
+        return stats;
+      }
+
+      const allActiveDiscountIds: number[] = [];
+
+      // Sync discounts for each store
+      for (const store of stores) {
+        console.log(`\nSyncing discounts for store: ${store.name}`);
+        console.log('-'.repeat(50));
+
+        try {
+          // Create Dutchie service instance for this store
+          const dutchieService = new DutchieService({
+            apiKey: store.dutchieApiKey,
+            retailerId: store.DutchieStoreID,
+          });
+
+          // Fetch discounts from Dutchie Reporting API
+          const discounts = await dutchieService.getReportingDiscounts();
+          console.log(`  Fetched ${discounts.length} discounts from Dutchie`);
+          stats.totalDiscounts += discounts.length;
+
+          // Sync each discount to Strapi
+          for (const discount of discounts) {
+            try {
+              await discountService.upsertDiscount(discount);
+              allActiveDiscountIds.push(discount.discountId);
+            } catch (error) {
+              console.error(`  Error syncing discount ${discount.discountId}:`, error);
+              stats.errors++;
+            }
+          }
+
+          console.log(`  ✓ Completed sync for ${store.name}`);
+        } catch (error) {
+          console.error(`  Error syncing store "${store.name}":`, error);
+          stats.errors++;
+        }
+      }
+
+      // Clean up discounts that are no longer active
+      console.log('\nCleaning up inactive discounts...');
+      const deleted = await discountService.deleteInactiveDiscounts(allActiveDiscountIds);
+      stats.deleted = deleted;
+
+      console.log('\n' + '='.repeat(50));
+      console.log('✅ Discount sync completed!');
+      console.log('\nDiscount Sync Statistics:');
+      console.log(`  Total stores synced: ${stats.totalStores}`);
+      console.log(`  Total discounts fetched: ${stats.totalDiscounts}`);
+      console.log(`  Deleted inactive: ${stats.deleted}`);
+      console.log(`  Errors: ${stats.errors}`);
+
+      return stats;
+    } catch (error) {
+      console.error('Error during discount sync process:', error);
+      throw error;
     }
   }
 }

@@ -15,8 +15,11 @@ async function main() {
     validateConfig();
     console.log('Configuration valid!\n');
 
-    // Run the sync
+    // Run the product-discount sync
     await syncService.sync();
+
+    // Run the discount sync
+    await syncService.syncDiscounts();
 
     // If sync interval is configured, run periodically
     if (config.sync.intervalMinutes) {
@@ -27,6 +30,7 @@ async function main() {
         console.log(`\n[${ new Date().toISOString()}] Running scheduled sync...`);
         try {
           await syncService.sync();
+          await syncService.syncDiscounts();
         } catch (error) {
           console.error('Scheduled sync failed:', error);
         }
