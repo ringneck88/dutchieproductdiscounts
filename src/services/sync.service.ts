@@ -508,9 +508,15 @@ class SyncService {
 
           // Sync each active discount to Strapi with batched progress logging
           let processedCount = 0;
+          const storeInfo = {
+            storeId: store.id!,
+            storeName: store.name,
+            DutchieStoreID: store.DutchieStoreID,
+          };
+
           for (const discount of activeDiscounts) {
             try {
-              await discountService.upsertDiscount(discount);
+              await discountService.upsertDiscount(discount, storeInfo);
               allActiveDiscountIds.push(discount.discountId);
               processedCount++;
 
@@ -611,9 +617,15 @@ class SyncService {
 
           // Sync each inventory item to Strapi with batched progress logging
           let processedCount = 0;
+          const storeInfo = {
+            storeId: store.id!,
+            storeName: store.name,
+            DutchieStoreID: store.DutchieStoreID,
+          };
+
           for (const item of inventory) {
             try {
-              await inventoryService.upsertInventory(item);
+              await inventoryService.upsertInventory(item, storeInfo);
               allActiveInventoryIds.push(item.inventoryId);
               processedCount++;
 

@@ -84,7 +84,7 @@ class InventoryService {
    * Uses inventoryId as unique identifier
    * Note: Logging removed to prevent Railway rate limiting
    */
-  async upsertInventory(inventoryData: any): Promise<void> {
+  async upsertInventory(inventoryData: any, storeInfo: { storeId: number; storeName: string; DutchieStoreID: string }): Promise<void> {
     try {
       // Check if inventory item already exists
       const existingInventory = await this.findInventoryByDutchieId(inventoryData.inventoryId);
@@ -145,6 +145,9 @@ class InventoryService {
         masterCategory: inventoryData.masterCategory,
         effectivePotencyMg: inventoryData.effectivePotencyMg,
         isCannabis: inventoryData.isCannabis ?? true,
+        storeId: storeInfo.storeId,
+        storeName: storeInfo.storeName,
+        DutchieStoreID: storeInfo.DutchieStoreID,
       };
 
       if (existingInventory) {

@@ -62,10 +62,27 @@ class DiscountService {
    * Uses discountId as unique identifier
    * Note: Logging removed to prevent Railway rate limiting
    */
-  async upsertDiscount(discountData: any): Promise<void> {
+  async upsertDiscount(discountData: any, storeInfo: { storeId: number; storeName: string; DutchieStoreID: string }): Promise<void> {
     try {
       // Check if discount already exists
       const existingDiscount = await this.findDiscountByDutchieId(discountData.discountId);
+
+      // Build stores array - merge with existing stores if discount already exists
+      let stores = [storeInfo];
+      if (existingDiscount && existingDiscount.stores && Array.isArray(existingDiscount.stores)) {
+        // Check if this store is already in the array
+        const storeExists = existingDiscount.stores.some(
+          (s: any) => s.DutchieStoreID === storeInfo.DutchieStoreID
+        );
+        if (!storeExists) {
+          stores = [...existingDiscount.stores, storeInfo];
+        } else {
+          // Update existing store info
+          stores = existingDiscount.stores.map((s: any) =>
+            s.DutchieStoreID === storeInfo.DutchieStoreID ? storeInfo : s
+          );
+        }
+      }
 
       const mappedData: StrapiDiscount = {
         discountId: discountData.discountId,
@@ -101,6 +118,7 @@ class DiscountService {
         inventoryTags: discountData.inventoryTags,
         customerTypes: discountData.customerTypes,
         discountGroups: discountData.discountGroups,
+        stores: stores,
       };
 
       if (existingDiscount) {
