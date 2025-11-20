@@ -168,17 +168,13 @@ class DutchieService {
   /**
    * Fetch all inventory from Dutchie Reporting API
    * Endpoint: GET /reporting/inventory
-   * This endpoint provides comprehensive inventory data including all fields and room quantities
+   * This endpoint provides comprehensive inventory data including quantityAvailable
    */
   async getReportingInventory(): Promise<any[]> {
     try {
       console.log(`Fetching inventory from Dutchie Reporting API for retailer ${this.retailerId}...`);
 
-      const response = await this.client.get<any[]>('/reporting/inventory', {
-        params: {
-          includeRoomQuantities: true
-        }
-      });
+      const response = await this.client.get<any[]>('/reporting/inventory');
 
       // Dutchie API returns array directly
       const inventory = Array.isArray(response.data) ? response.data : [];
