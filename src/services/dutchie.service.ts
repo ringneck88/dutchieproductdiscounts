@@ -188,32 +188,6 @@ class DutchieService {
   }
 
   /**
-   * Fetch retailer/store information from Dutchie
-   * This provides store name, location, and other metadata
-   */
-  async getRetailerInfo(): Promise<any> {
-    try {
-      console.log(`Fetching retailer info for ${this.retailerId}...`);
-
-      // Try /reporting/retailers endpoint first
-      try {
-        const response = await this.client.get(`/reporting/retailers/${this.retailerId}`);
-        return response.data;
-      } catch (error: any) {
-        // If that fails, try /retailers endpoint
-        if (error.response?.status === 404 || error.response?.status === 405) {
-          const response = await this.client.get(`/retailers/${this.retailerId}`);
-          return response.data;
-        }
-        throw error;
-      }
-    } catch (error) {
-      console.error('Error fetching retailer info from Dutchie:', error);
-      throw new Error(`Failed to fetch retailer info: ${error}`);
-    }
-  }
-
-  /**
    * Get all products that have active discounts
    * Returns products with their associated discount IDs
    */
