@@ -47,6 +47,8 @@ interface StrapiDiscount {
 class DiscountService {
   private client: AxiosInstance;
   private readonly COLLECTION_NAME = 'discounts';
+  private readonly MAX_RETRIES = 3;
+  private readonly BASE_DELAY = 1000; // 1 second
 
   constructor() {
     this.client = axios.create({
@@ -56,6 +58,37 @@ class DiscountService {
         'Content-Type': 'application/json',
       },
     });
+  }
+
+  /**
+   * Retry helper with exponential backoff for transient network errors
+   */
+  private async retryWithBackoff<T>(
+    operation: () => Promise<T>,
+    retries = this.MAX_RETRIES
+  ): Promise<T> {
+    try {
+      return await operation();
+    } catch (error: any) {
+      // Check if error is retryable (DNS, network, timeout, 5xx)
+      const isRetryable =
+        error.code === 'EAI_AGAIN' || // DNS temporary failure
+        error.code === 'ENOTFOUND' || // DNS not found
+        error.code === 'ETIMEDOUT' || // Connection timeout
+        error.code === 'ECONNRESET' || // Connection reset
+        error.code === 'ECONNREFUSED' || // Connection refused
+        (error.response?.status >= 500 && error.response?.status < 600); // Server errors
+
+      if (!isRetryable || retries <= 0) {
+        throw error;
+      }
+
+      // Exponential backoff with jitter
+      const delay = this.BASE_DELAY * Math.pow(2, this.MAX_RETRIES - retries) + Math.random() * 1000;
+      await new Promise(resolve => setTimeout(resolve, delay));
+
+      return this.retryWithBackoff(operation, retries - 1);
+    }
   }
 
   /**
@@ -125,16 +158,20 @@ class DiscountService {
       if (existingDiscount) {
         // Try to update existing discount
         try {
-          await this.client.put(
-            `/api/${this.COLLECTION_NAME}/${existingDiscount.id}`,
-            { data: mappedData }
+          await this.retryWithBackoff(() =>
+            this.client.put(
+              `/api/${this.COLLECTION_NAME}/${existingDiscount.id}`,
+              { data: mappedData }
+            )
           );
         } catch (updateError: any) {
           // If record was deleted (404), create a new one
           if (updateError.response?.status === 404) {
-            await this.client.post(
-              `/api/${this.COLLECTION_NAME}`,
-              { data: mappedData }
+            await this.retryWithBackoff(() =>
+              this.client.post(
+                `/api/${this.COLLECTION_NAME}`,
+                { data: mappedData }
+              )
             );
           } else {
             throw updateError;
@@ -143,9 +180,11 @@ class DiscountService {
       } else {
         // Create new discount
         try {
-          await this.client.post(
-            `/api/${this.COLLECTION_NAME}`,
-            { data: mappedData }
+          await this.retryWithBackoff(() =>
+            this.client.post(
+              `/api/${this.COLLECTION_NAME}`,
+              { data: mappedData }
+            )
           );
         } catch (createError: any) {
           // If unique constraint violation (discount already exists), find and update it
@@ -159,9 +198,11 @@ class DiscountService {
             const existing = await this.findDiscountByDutchieId(discountData.discountId);
             if (existing) {
               try {
-                await this.client.put(
-                  `/api/${this.COLLECTION_NAME}/${existing.id}`,
-                  { data: mappedData }
+                await this.retryWithBackoff(() =>
+                  this.client.put(
+                    `/api/${this.COLLECTION_NAME}/${existing.id}`,
+                    { data: mappedData }
+                  )
                 );
               } catch (updateError: any) {
                 // If update also fails, another process is handling this discount - skip silently
@@ -195,14 +236,16 @@ class DiscountService {
    */
   private async findDiscountByDutchieId(discountId: number): Promise<StrapiDiscount | null> {
     try {
-      const response = await this.client.get(`/api/${this.COLLECTION_NAME}`, {
-        params: {
-          filters: {
-            discountId: { $eq: discountId }
-          },
-          pagination: { pageSize: 1 }
-        }
-      });
+      const response = await this.retryWithBackoff(() =>
+        this.client.get(`/api/${this.COLLECTION_NAME}`, {
+          params: {
+            filters: {
+              discountId: { $eq: discountId }
+            },
+            pagination: { pageSize: 1 }
+          }
+        })
+      );
 
       const discounts = response.data.data;
       if (discounts && discounts.length > 0) {

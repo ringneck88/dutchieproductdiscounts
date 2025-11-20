@@ -15,6 +15,8 @@ import {
 class StrapiService {
   private client: AxiosInstance;
   private readonly COLLECTION_NAME = 'product-discounts';
+  private readonly MAX_RETRIES = 3;
+  private readonly BASE_DELAY = 1000; // 1 second
 
   constructor() {
     this.client = axios.create({
@@ -24,6 +26,37 @@ class StrapiService {
         'Content-Type': 'application/json',
       },
     });
+  }
+
+  /**
+   * Retry helper with exponential backoff for transient network errors
+   */
+  private async retryWithBackoff<T>(
+    operation: () => Promise<T>,
+    retries = this.MAX_RETRIES
+  ): Promise<T> {
+    try {
+      return await operation();
+    } catch (error: any) {
+      // Check if error is retryable (DNS, network, timeout, 5xx)
+      const isRetryable =
+        error.code === 'EAI_AGAIN' || // DNS temporary failure
+        error.code === 'ENOTFOUND' || // DNS not found
+        error.code === 'ETIMEDOUT' || // Connection timeout
+        error.code === 'ECONNRESET' || // Connection reset
+        error.code === 'ECONNREFUSED' || // Connection refused
+        (error.response?.status >= 500 && error.response?.status < 600); // Server errors
+
+      if (!isRetryable || retries <= 0) {
+        throw error;
+      }
+
+      // Exponential backoff with jitter
+      const delay = this.BASE_DELAY * Math.pow(2, this.MAX_RETRIES - retries) + Math.random() * 1000;
+      await new Promise(resolve => setTimeout(resolve, delay));
+
+      return this.retryWithBackoff(operation, retries - 1);
+    }
   }
 
   /**
@@ -60,20 +93,22 @@ class StrapiService {
     discountDutchieId: string
   ): Promise<StrapiProductDiscount | null> {
     try {
-      const response = await this.client.get<StrapiCollectionResponse<StrapiProductDiscount>>(
-        `/api/${this.COLLECTION_NAME}`,
-        {
-          params: {
-            filters: {
-              productDutchieId: {
-                $eq: productDutchieId,
-              },
-              discountDutchieId: {
-                $eq: discountDutchieId,
+      const response = await this.retryWithBackoff(() =>
+        this.client.get<StrapiCollectionResponse<StrapiProductDiscount>>(
+          `/api/${this.COLLECTION_NAME}`,
+          {
+            params: {
+              filters: {
+                productDutchieId: {
+                  $eq: productDutchieId,
+                },
+                discountDutchieId: {
+                  $eq: discountDutchieId,
+                },
               },
             },
-          },
-        }
+          }
+        )
       );
 
       if (response.data.data.length > 0) {
@@ -96,9 +131,11 @@ class StrapiService {
    */
   async createProductDiscount(data: ProductDiscount): Promise<StrapiProductDiscount> {
     try {
-      const response = await this.client.post<StrapiSingleResponse<StrapiProductDiscount>>(
-        `/api/${this.COLLECTION_NAME}`,
-        { data }
+      const response = await this.retryWithBackoff(() =>
+        this.client.post<StrapiSingleResponse<StrapiProductDiscount>>(
+          `/api/${this.COLLECTION_NAME}`,
+          { data }
+        )
       );
 
       return {
@@ -120,9 +157,11 @@ class StrapiService {
     data: Partial<ProductDiscount>
   ): Promise<StrapiProductDiscount | null> {
     try {
-      const response = await this.client.put<StrapiSingleResponse<StrapiProductDiscount>>(
-        `/api/${this.COLLECTION_NAME}/${id}`,
-        { data }
+      const response = await this.retryWithBackoff(() =>
+        this.client.put<StrapiSingleResponse<StrapiProductDiscount>>(
+          `/api/${this.COLLECTION_NAME}/${id}`,
+          { data }
+        )
       );
 
       return {

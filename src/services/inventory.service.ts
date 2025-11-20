@@ -71,6 +71,8 @@ interface StrapiInventory {
 class InventoryService {
   private client: AxiosInstance;
   private readonly COLLECTION_NAME = 'inventories';
+  private readonly MAX_RETRIES = 3;
+  private readonly BASE_DELAY = 1000; // 1 second
 
   constructor() {
     this.client = axios.create({
@@ -80,6 +82,37 @@ class InventoryService {
         'Content-Type': 'application/json',
       },
     });
+  }
+
+  /**
+   * Retry helper with exponential backoff for transient network errors
+   */
+  private async retryWithBackoff<T>(
+    operation: () => Promise<T>,
+    retries = this.MAX_RETRIES
+  ): Promise<T> {
+    try {
+      return await operation();
+    } catch (error: any) {
+      // Check if error is retryable (DNS, network, timeout, 5xx)
+      const isRetryable =
+        error.code === 'EAI_AGAIN' || // DNS temporary failure
+        error.code === 'ENOTFOUND' || // DNS not found
+        error.code === 'ETIMEDOUT' || // Connection timeout
+        error.code === 'ECONNRESET' || // Connection reset
+        error.code === 'ECONNREFUSED' || // Connection refused
+        (error.response?.status >= 500 && error.response?.status < 600); // Server errors
+
+      if (!isRetryable || retries <= 0) {
+        throw error;
+      }
+
+      // Exponential backoff with jitter
+      const delay = this.BASE_DELAY * Math.pow(2, this.MAX_RETRIES - retries) + Math.random() * 1000;
+      await new Promise(resolve => setTimeout(resolve, delay));
+
+      return this.retryWithBackoff(operation, retries - 1);
+    }
   }
 
   /**
@@ -156,16 +189,20 @@ class InventoryService {
       if (existingInventory) {
         // Try to update existing inventory item
         try {
-          await this.client.put(
-            `/api/${this.COLLECTION_NAME}/${existingInventory.id}`,
-            { data: mappedData }
+          await this.retryWithBackoff(() =>
+            this.client.put(
+              `/api/${this.COLLECTION_NAME}/${existingInventory.id}`,
+              { data: mappedData }
+            )
           );
         } catch (updateError: any) {
           // If record was deleted (404), create a new one
           if (updateError.response?.status === 404) {
-            await this.client.post(
-              `/api/${this.COLLECTION_NAME}`,
-              { data: mappedData }
+            await this.retryWithBackoff(() =>
+              this.client.post(
+                `/api/${this.COLLECTION_NAME}`,
+                { data: mappedData }
+              )
             );
           } else {
             throw updateError;
@@ -174,9 +211,11 @@ class InventoryService {
       } else {
         // Create new inventory item
         try {
-          await this.client.post(
-            `/api/${this.COLLECTION_NAME}`,
-            { data: mappedData }
+          await this.retryWithBackoff(() =>
+            this.client.post(
+              `/api/${this.COLLECTION_NAME}`,
+              { data: mappedData }
+            )
           );
         } catch (createError: any) {
           // If unique constraint violation (inventory already exists), find and update it
@@ -189,9 +228,11 @@ class InventoryService {
             const existing = await this.findInventoryByDutchieId(inventoryData.inventoryId);
             if (existing) {
               try {
-                await this.client.put(
-                  `/api/${this.COLLECTION_NAME}/${existing.id}`,
-                  { data: mappedData }
+                await this.retryWithBackoff(() =>
+                  this.client.put(
+                    `/api/${this.COLLECTION_NAME}/${existing.id}`,
+                    { data: mappedData }
+                  )
                 );
               } catch (updateError: any) {
                 // If update also fails, skip silently unless it's a real error
@@ -222,14 +263,16 @@ class InventoryService {
    */
   private async findInventoryByDutchieId(inventoryId: number): Promise<StrapiInventory | null> {
     try {
-      const response = await this.client.get(`/api/${this.COLLECTION_NAME}`, {
-        params: {
-          filters: {
-            inventoryId: { $eq: inventoryId }
-          },
-          pagination: { pageSize: 1 }
-        }
-      });
+      const response = await this.retryWithBackoff(() =>
+        this.client.get(`/api/${this.COLLECTION_NAME}`, {
+          params: {
+            filters: {
+              inventoryId: { $eq: inventoryId }
+            },
+            pagination: { pageSize: 1 }
+          }
+        })
+      );
 
       const inventories = response.data.data;
       if (inventories && inventories.length > 0) {
