@@ -142,6 +142,16 @@ class SyncService {
         retailerId: store.DutchieStoreID,
       });
 
+      // Fetch and update store info from Dutchie
+      try {
+        const retailerInfo = await dutchieService.getRetailerInfo();
+        if (retailerInfo && store.id) {
+          await storeService.updateStoreFromDutchie(store.id, retailerInfo);
+        }
+      } catch (error) {
+        console.warn(`⚠️  Could not fetch retailer info (continuing with sync):`, error);
+      }
+
       // Fetch all products and discounts from Dutchie for this store
       const [products, discounts] = await Promise.all([
         dutchieService.getProducts(),
@@ -481,6 +491,20 @@ class SyncService {
             retailerId: store.DutchieStoreID,
           });
 
+          // Fetch and update store info from Dutchie
+          try {
+            const retailerInfo = await dutchieService.getRetailerInfo();
+            if (retailerInfo && store.id) {
+              const updatedStore = await storeService.updateStoreFromDutchie(store.id, retailerInfo);
+              // Update store object with latest info
+              if (updatedStore) {
+                Object.assign(store, updatedStore);
+              }
+            }
+          } catch (error) {
+            console.warn(`  ⚠️  Could not fetch retailer info (continuing with sync)`);
+          }
+
           // Fetch discounts from Dutchie Reporting API
           const allDiscounts = await dutchieService.getReportingDiscounts();
           console.log(`  Fetched ${allDiscounts.length} total discounts from Dutchie`);
@@ -608,6 +632,20 @@ class SyncService {
             apiKey: store.dutchieApiKey,
             retailerId: store.DutchieStoreID,
           });
+
+          // Fetch and update store info from Dutchie
+          try {
+            const retailerInfo = await dutchieService.getRetailerInfo();
+            if (retailerInfo && store.id) {
+              const updatedStore = await storeService.updateStoreFromDutchie(store.id, retailerInfo);
+              // Update store object with latest info
+              if (updatedStore) {
+                Object.assign(store, updatedStore);
+              }
+            }
+          } catch (error) {
+            console.warn(`  ⚠️  Could not fetch retailer info (continuing with sync)`);
+          }
 
           // Fetch inventory from Dutchie Reporting API
           const inventory = await dutchieService.getReportingInventory();

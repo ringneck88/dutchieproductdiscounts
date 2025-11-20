@@ -125,6 +125,61 @@ class StoreService {
     const stores = await this.getActiveStores();
     return stores.filter((store) => this.validateStore(store));
   }
+
+  /**
+   * Update store information from Dutchie retailer data
+   */
+  async updateStoreFromDutchie(
+    storeId: number,
+    retailerInfo: any
+  ): Promise<Store | null> {
+    try {
+      const updateData: Partial<Store> = {};
+
+      // Map Dutchie retailer fields to store fields
+      if (retailerInfo.name) {
+        updateData.name = retailerInfo.name;
+      }
+
+      if (retailerInfo.location || retailerInfo.address) {
+        updateData.location = retailerInfo.location || retailerInfo.address;
+      }
+
+      if (retailerInfo.city) {
+        updateData.city = retailerInfo.city;
+      }
+
+      if (retailerInfo.state) {
+        updateData.state = retailerInfo.state;
+      }
+
+      if (retailerInfo.timezone) {
+        updateData.timezone = retailerInfo.timezone;
+      }
+
+      // Only update if there's data to update
+      if (Object.keys(updateData).length === 0) {
+        console.log(`No retailer info to update for store ${storeId}`);
+        return null;
+      }
+
+      const response = await this.client.put(
+        `/api/${this.COLLECTION_NAME}/${storeId}`,
+        { data: updateData }
+      );
+
+      console.log(`✓ Updated store ${storeId} with Dutchie retailer info`);
+
+      const item = response.data.data;
+      return {
+        id: item.id,
+        ...(item.attributes || item),
+      } as Store;
+    } catch (error) {
+      console.error(`Error updating store ${storeId} from Dutchie:`, error);
+      return null;
+    }
+  }
 }
 
 export default new StoreService();
