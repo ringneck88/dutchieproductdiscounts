@@ -232,7 +232,7 @@ Should return:
 ### 3. Query Products
 
 ```bash
-curl https://your-api.railway.app/api/products/discounts
+curl 
 ```
 
 ---

@@ -8,6 +8,8 @@
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "sync": "ts-node src/index.ts",
+    "sync:inventory": "ts-node src/sync-inventory-only.ts",
+    "sync:inventory:prod": "node dist/sync-inventory-only.js",
     "api": "ts-node src/api.ts",
     "api:prod": "node dist/api.js"
   },
