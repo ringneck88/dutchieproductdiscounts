@@ -10,6 +10,10 @@
     "sync": "ts-node src/index.ts",
     "sync:inventory": "ts-node src/sync-inventory-only.ts",
     "sync:inventory:prod": "node dist/sync-inventory-only.js",
+    "sync:discounts": "ts-node src/sync-discounts-only.ts",
+    "sync:discounts:prod": "node dist/sync-discounts-only.js",
+    "sync:all": "ts-node src/sync-all.ts",
+    "sync:all:prod": "node dist/sync-all.js",
     "api": "ts-node src/api.ts",
     "api:prod": "node dist/api.js"
   },

@@ -8,7 +8,7 @@ import config from '../config';
 
 interface StrapiDiscount {
   id?: number;
-  discountId: number;
+  discountId: string;
   discountName: string;
   discountCode?: string;
   discountAmount?: number;
@@ -41,7 +41,10 @@ interface StrapiDiscount {
   inventoryTags?: any;
   customerTypes?: any;
   discountGroups?: any;
-  stores?: any;
+  // Store association
+  storeId?: number;
+  storeName?: string;
+  DutchieStoreID?: string;
 }
 
 class DiscountService {
@@ -101,25 +104,8 @@ class DiscountService {
       // Check if discount already exists
       const existingDiscount = await this.findDiscountByDutchieId(discountData.discountId);
 
-      // Build stores array - merge with existing stores if discount already exists
-      let stores = [storeInfo];
-      if (existingDiscount && existingDiscount.stores && Array.isArray(existingDiscount.stores)) {
-        // Check if this store is already in the array
-        const storeExists = existingDiscount.stores.some(
-          (s: any) => s.DutchieStoreID === storeInfo.DutchieStoreID
-        );
-        if (!storeExists) {
-          stores = [...existingDiscount.stores, storeInfo];
-        } else {
-          // Update existing store info
-          stores = existingDiscount.stores.map((s: any) =>
-            s.DutchieStoreID === storeInfo.DutchieStoreID ? storeInfo : s
-          );
-        }
-      }
-
       const mappedData: StrapiDiscount = {
-        discountId: discountData.discountId,
+        discountId: String(discountData.discountId),
         discountName: discountData.discountName,
         discountCode: discountData.discountCode,
         discountAmount: discountData.discountAmount,
@@ -152,7 +138,10 @@ class DiscountService {
         inventoryTags: discountData.inventoryTags,
         customerTypes: discountData.customerTypes,
         discountGroups: discountData.discountGroups,
-        stores: stores,
+        // Store association
+        storeId: storeInfo.storeId,
+        storeName: storeInfo.storeName,
+        DutchieStoreID: storeInfo.DutchieStoreID,
       };
 
       if (existingDiscount) {
@@ -234,13 +223,13 @@ class DiscountService {
   /**
    * Find a discount in Strapi by Dutchie discount ID
    */
-  private async findDiscountByDutchieId(discountId: number): Promise<StrapiDiscount | null> {
+  private async findDiscountByDutchieId(discountId: number | string): Promise<StrapiDiscount | null> {
     try {
       const response = await this.retryWithBackoff(() =>
         this.client.get(`/api/${this.COLLECTION_NAME}`, {
           params: {
             filters: {
-              discountId: { $eq: discountId }
+              discountId: { $eq: String(discountId) }
             },
             pagination: { pageSize: 1 }
           }
