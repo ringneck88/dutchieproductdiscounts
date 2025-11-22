@@ -8,12 +8,12 @@ import config from '../config';
 
 interface StrapiInventory {
   id?: number;
-  inventoryId: number;
-  productId?: number;
+  inventoryId: string;
+  productId?: string;
   sku?: string;
   productName: string;
   description?: string;
-  categoryId?: number;
+  categoryId?: string;
   category?: string;
   imageUrl?: string;
   quantityAvailable?: number;
@@ -28,13 +28,13 @@ interface StrapiInventory {
   flowerEquivalent?: number;
   recFlowerEquivalent?: number;
   flowerEquivalentUnits?: string;
-  batchId?: number;
+  batchId?: string;
   batchName?: string;
   packageId?: string;
   packageStatus?: string;
   externalPackageId?: string;
   packageNDC?: string;
-  strainId?: number;
+  strainId?: string;
   strain?: string;
   strainType?: string;
   size?: string;
@@ -47,25 +47,22 @@ interface StrapiInventory {
   expirationDate?: string;
   labTestStatus?: string;
   labResultUrl?: string;
-  vendorId?: number;
+  vendorId?: string;
   vendor?: string;
   roomQuantities?: any;
   pricingTierName?: string;
   alternateName?: string;
   tags?: any;
-  brandId?: number;
+  brandId?: string;
   brandName?: string;
   medicalOnly?: boolean;
   producer?: string;
-  producerId?: number;
+  producerId?: string;
   lineage?: any;
   potencyIndicator?: string;
   masterCategory?: string;
   effectivePotencyMg?: number;
   isCannabis?: boolean;
-  storeId?: number;
-  storeName?: string;
-  DutchieStoreID?: string;
 }
 
 class InventoryService {
@@ -125,13 +122,14 @@ class InventoryService {
       // Check if inventory item already exists
       const existingInventory = await this.findInventoryByDutchieId(inventoryData.inventoryId);
 
+      // Convert IDs to strings as Strapi schema expects string types
       const mappedData: StrapiInventory = {
-        inventoryId: inventoryData.inventoryId,
-        productId: inventoryData.productId,
+        inventoryId: String(inventoryData.inventoryId),
+        productId: inventoryData.productId ? String(inventoryData.productId) : undefined,
         sku: inventoryData.sku,
         productName: inventoryData.productName,
         description: inventoryData.description,
-        categoryId: inventoryData.categoryId,
+        categoryId: inventoryData.categoryId ? String(inventoryData.categoryId) : undefined,
         category: inventoryData.category,
         imageUrl: inventoryData.imageUrl,
         quantityAvailable: inventoryData.quantityAvailable,
@@ -146,17 +144,17 @@ class InventoryService {
         flowerEquivalent: inventoryData.flowerEquivalent,
         recFlowerEquivalent: inventoryData.recFlowerEquivalent,
         flowerEquivalentUnits: inventoryData.flowerEquivalentUnits,
-        batchId: inventoryData.batchId,
+        batchId: inventoryData.batchId ? String(inventoryData.batchId) : undefined,
         batchName: inventoryData.batchName,
         packageId: inventoryData.packageId,
         packageStatus: inventoryData.packageStatus,
         externalPackageId: inventoryData.externalPackageId,
         packageNDC: inventoryData.packageNDC,
-        strainId: inventoryData.strainId,
+        strainId: inventoryData.strainId ? String(inventoryData.strainId) : undefined,
         strain: inventoryData.strain,
         strainType: inventoryData.strainType,
         size: inventoryData.size,
-        labResults: inventoryData.labResults,
+        // labResults: skip - Strapi component
         testedDate: inventoryData.testedDate,
         sampleDate: inventoryData.sampleDate,
         packagedDate: inventoryData.packagedDate,
@@ -165,25 +163,22 @@ class InventoryService {
         expirationDate: inventoryData.expirationDate,
         labTestStatus: inventoryData.labTestStatus,
         labResultUrl: inventoryData.labResultUrl,
-        vendorId: inventoryData.vendorId,
+        vendorId: inventoryData.vendorId ? String(inventoryData.vendorId) : undefined,
         vendor: inventoryData.vendor,
-        roomQuantities: inventoryData.roomQuantities,
+        // roomQuantities: skip - Strapi component
         pricingTierName: inventoryData.pricingTierName,
         alternateName: inventoryData.alternateName,
-        tags: inventoryData.tags,
-        brandId: inventoryData.brandId,
+        // tags: skip - Strapi component
+        brandId: inventoryData.brandId ? String(inventoryData.brandId) : undefined,
         brandName: inventoryData.brandName,
         medicalOnly: inventoryData.medicalOnly ?? false,
         producer: inventoryData.producer,
-        producerId: inventoryData.producerId,
-        lineage: inventoryData.lineage,
+        producerId: inventoryData.producerId ? String(inventoryData.producerId) : undefined,
+        // lineage: skip - Strapi component
         potencyIndicator: inventoryData.potencyIndicator,
         masterCategory: inventoryData.masterCategory,
         effectivePotencyMg: inventoryData.effectivePotencyMg,
         isCannabis: inventoryData.isCannabis ?? true,
-        storeId: storeInfo.storeId,
-        storeName: storeInfo.storeName,
-        DutchieStoreID: storeInfo.DutchieStoreID,
       };
 
       if (existingInventory) {
@@ -261,13 +256,13 @@ class InventoryService {
   /**
    * Find an inventory item in Strapi by Dutchie inventory ID
    */
-  private async findInventoryByDutchieId(inventoryId: number): Promise<StrapiInventory | null> {
+  private async findInventoryByDutchieId(inventoryId: number | string): Promise<StrapiInventory | null> {
     try {
       const response = await this.retryWithBackoff(() =>
         this.client.get(`/api/${this.COLLECTION_NAME}`, {
           params: {
             filters: {
-              inventoryId: { $eq: inventoryId }
+              inventoryId: { $eq: String(inventoryId) }
             },
             pagination: { pageSize: 1 }
           }
