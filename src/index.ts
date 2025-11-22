@@ -15,14 +15,10 @@ async function main() {
     validateConfig();
     console.log('Configuration valid!\n');
 
-    // Run discounts and inventory syncs in parallel
-    // Product-discount pairs are calculated on-demand from discount filter metadata
-    console.log('Starting parallel sync: discounts AND inventory...\n');
+    // Sync inventory only from Dutchie /reporting/inventory endpoint
+    console.log('Starting inventory sync for all stores...\n');
 
-    const [discountStats, inventoryStats] = await Promise.all([
-      syncService.syncDiscounts(),
-      syncService.syncInventory()
-    ]);
+    const inventoryStats = await syncService.syncInventory();
 
     console.log('\n' + '='.repeat(50));
     console.log('✅ All syncs completed!');
@@ -34,12 +30,9 @@ async function main() {
       console.log('Press Ctrl+C to stop\n');
 
       setInterval(async () => {
-        console.log(`\n[${ new Date().toISOString()}] Running scheduled parallel sync...`);
+        console.log(`\n[${new Date().toISOString()}] Running scheduled inventory sync...`);
         try {
-          await Promise.all([
-            syncService.syncDiscounts(),
-            syncService.syncInventory()
-          ]);
+          await syncService.syncInventory();
           console.log('✅ Scheduled sync completed!');
         } catch (error) {
           console.error('Scheduled sync failed:', error);
