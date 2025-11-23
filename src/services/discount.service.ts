@@ -41,10 +41,6 @@ interface StrapiDiscount {
   inventoryTags?: any;
   customerTypes?: any;
   discountGroups?: any;
-  // Store association
-  storeId?: number;
-  storeName?: string;
-  DutchieStoreID?: string;
 }
 
 class DiscountService {
@@ -138,10 +134,7 @@ class DiscountService {
         inventoryTags: discountData.inventoryTags,
         customerTypes: discountData.customerTypes,
         discountGroups: discountData.discountGroups,
-        // Store association
-        storeId: storeInfo.storeId,
-        storeName: storeInfo.storeName,
-        DutchieStoreID: storeInfo.DutchieStoreID,
+        // Note: Store fields removed - Strapi discounts schema doesn't have these
       };
 
       if (existingDiscount) {
