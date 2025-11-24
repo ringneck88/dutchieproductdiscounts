@@ -9,6 +9,7 @@ import config from '../config';
 interface StrapiInventory {
   id?: number;
   inventoryId: string;
+  dutchieStoreID?: string;
   productId?: string;
   sku?: string;
   productName: string;
@@ -125,6 +126,7 @@ class InventoryService {
       // Convert IDs to strings as Strapi schema expects string types
       const mappedData: StrapiInventory = {
         inventoryId: String(inventoryData.inventoryId),
+        dutchieStoreID: storeInfo.DutchieStoreID,
         productId: inventoryData.productId ? String(inventoryData.productId) : undefined,
         sku: inventoryData.sku,
         productName: inventoryData.productName,
