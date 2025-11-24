@@ -123,6 +123,19 @@ class InventoryService {
       // Check if inventory item already exists
       const existingInventory = await this.findInventoryByDutchieId(inventoryData.inventoryId);
 
+      // Skip items with quantityAvailable < 5 and remove if exists
+      const quantity = inventoryData.quantityAvailable ?? 0;
+      if (quantity < 5) {
+        if (existingInventory) {
+          // Remove from Strapi if it exists
+          await this.retryWithBackoff(() =>
+            this.client.delete(`/api/${this.COLLECTION_NAME}/${existingInventory.id}`)
+          );
+        }
+        // Skip syncing this item
+        return;
+      }
+
       // Convert IDs to strings as Strapi schema expects string types
       const mappedData: StrapiInventory = {
         inventoryId: String(inventoryData.inventoryId),

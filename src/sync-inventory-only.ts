@@ -29,76 +29,63 @@ async function syncInventoryOnly() {
 
     console.log(`Found ${stores.length} valid store(s) to sync\n`);
 
-    // Sync inventory for each store
-    let totalInventorySynced = 0;
+    // Sync all stores in parallel
+    const storeResults = await Promise.all(
+      stores.map(async (store) => {
+        console.log(`🚀 Starting inventory sync for: ${store.name} (ID: ${store.dutchieStoreID})`);
 
-    for (const store of stores) {
-      console.log(`\n${'='.repeat(60)}`);
-      console.log(`Syncing inventory for: ${store.name} (ID: ${store.dutchieStoreID})`);
-      console.log('='.repeat(60));
-
-      try {
-        // Initialize Dutchie service for this store
-        const dutchieService = new DutchieService({
-          apiKey: store.dutchieApiKey,
-          retailerId: store.dutchieStoreID,
-        });
-
-        // Initialize Inventory service
-        const inventoryService = new InventoryService();
-
-        // Fetch inventory from Dutchie
-        console.log('Fetching inventory from Dutchie...');
-        const inventoryItems = await dutchieService.getReportingInventory();
-
-        if (inventoryItems.length === 0) {
-          console.log('No inventory items found for this store');
-          continue;
-        }
-
-        console.log(`Found ${inventoryItems.length} inventory items\n`);
-
-        // Store info to associate with inventory items
-        const storeInfo = {
-          storeId: store.id!,  // Non-null assertion since stores from Strapi always have IDs
-          storeName: store.name,
-          dutchieStoreID: store.dutchieStoreID,
-        };
-
-        // Sync each inventory item to Strapi
-        console.log('Syncing inventory items to Strapi...');
         let syncedCount = 0;
         let errorCount = 0;
 
-        for (const item of inventoryItems) {
-          try {
-            await inventoryService.upsertInventory(item, storeInfo);
-            syncedCount++;
+        try {
+          // Initialize Dutchie service for this store
+          const dutchieService = new DutchieService({
+            apiKey: store.dutchieApiKey,
+            retailerId: store.dutchieStoreID,
+          });
 
-            // Log progress every 100 items
-            if (syncedCount % 100 === 0) {
-              console.log(`  Progress: ${syncedCount}/${inventoryItems.length} (${((syncedCount/inventoryItems.length)*100).toFixed(1)}%)`);
-            }
-          } catch (error) {
-            errorCount++;
-            if (errorCount <= 5) {
-              console.error(`  Error syncing inventory item ${item.inventoryId}:`, error);
+          // Initialize Inventory service
+          const inventoryService = new InventoryService();
+
+          // Fetch inventory from Dutchie
+          const inventoryItems = await dutchieService.getReportingInventory();
+
+          if (inventoryItems.length === 0) {
+            console.log(`[${store.name}] No inventory items found`);
+            return { storeName: store.name, synced: 0, errors: 0 };
+          }
+
+          console.log(`[${store.name}] Fetched ${inventoryItems.length} inventory items`);
+
+          // Store info to associate with inventory items
+          const storeInfo = {
+            storeId: store.id!,
+            storeName: store.name,
+            dutchieStoreID: store.dutchieStoreID,
+          };
+
+          // Sync each inventory item to Strapi
+          for (const item of inventoryItems) {
+            try {
+              await inventoryService.upsertInventory(item, storeInfo);
+              syncedCount++;
+            } catch (error) {
+              errorCount++;
             }
           }
+
+          console.log(`✅ [${store.name}] Complete: ${syncedCount}/${inventoryItems.length} synced${errorCount > 0 ? `, ${errorCount} errors` : ''}`);
+
+        } catch (storeError) {
+          console.error(`❌ Error syncing store "${store.name}":`, storeError);
         }
 
-        console.log(`\n✅ Store "${store.name}" sync complete:`);
-        console.log(`   Synced: ${syncedCount}/${inventoryItems.length}`);
-        if (errorCount > 0) {
-          console.log(`   Errors: ${errorCount}`);
-        }
+        return { storeName: store.name, synced: syncedCount, errors: errorCount };
+      })
+    );
 
-        totalInventorySynced += syncedCount;
-
-      } catch (storeError) {
-        console.error(`❌ Error syncing store "${store.name}":`, storeError);
-      }
-    }
+    // Aggregate results
+    const totalInventorySynced = storeResults.reduce((sum, r) => sum + r.synced, 0);
 
     // Final summary
     console.log(`\n${'='.repeat(60)}`);

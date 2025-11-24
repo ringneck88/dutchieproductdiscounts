@@ -36,88 +36,88 @@ async function syncAll() {
     let totalInventorySynced = 0;
     let totalDiscountsSynced = 0;
 
-    for (const store of stores) {
-      console.log(`\n${'═'.repeat(70)}`);
-      console.log(`STORE: ${store.name} (ID: ${store.dutchieStoreID})`);
-      console.log('═'.repeat(70));
+    // Sync all stores in parallel
+    const storeResults = await Promise.all(
+      stores.map(async (store) => {
+        const result = { storeName: store.name, invSynced: 0, discSynced: 0, invErrors: 0, discErrors: 0 };
 
-      try {
-        // Initialize services for this store
-        const dutchieService = new DutchieService({
-          apiKey: store.dutchieApiKey,
-          retailerId: store.dutchieStoreID,
-        });
+        console.log(`\n🚀 Starting sync for: ${store.name} (ID: ${store.dutchieStoreID})`);
 
-        const inventoryService = new InventoryService();
-        const discountService = new DiscountService();
+        try {
+          // Initialize services for this store
+          const dutchieService = new DutchieService({
+            apiKey: store.dutchieApiKey,
+            retailerId: store.dutchieStoreID,
+          });
 
-        const storeInfo = {
-          storeId: store.id!,
-          storeName: store.name,
-          dutchieStoreID: store.dutchieStoreID,
-        };
+          const inventoryService = new InventoryService();
+          const discountService = new DiscountService();
 
-        // ===== SYNC INVENTORY =====
-        console.log('\n📦 Syncing Inventory...');
-        console.log('─'.repeat(50));
+          const storeInfo = {
+            storeId: store.id!,
+            storeName: store.name,
+            dutchieStoreID: store.dutchieStoreID,
+          };
 
-        const inventoryItems = await dutchieService.getReportingInventory();
-        console.log(`Found ${inventoryItems.length} inventory items`);
+          // Fetch inventory and discounts in parallel
+          const [inventoryItems, discounts] = await Promise.all([
+            dutchieService.getReportingInventory(),
+            dutchieService.getReportingDiscounts(),
+          ]);
 
-        let invSynced = 0;
-        let invErrors = 0;
+          console.log(`[${store.name}] Fetched ${inventoryItems.length} inventory, ${discounts.length} discounts`);
 
-        for (const item of inventoryItems) {
-          try {
-            await inventoryService.upsertInventory(item, storeInfo);
-            invSynced++;
+          // Sync inventory and discounts in parallel
+          const [invResult, discResult] = await Promise.all([
+            // Sync inventory
+            (async () => {
+              let synced = 0;
+              let errors = 0;
+              for (const item of inventoryItems) {
+                try {
+                  await inventoryService.upsertInventory(item, storeInfo);
+                  synced++;
+                } catch (error) {
+                  errors++;
+                }
+              }
+              return { synced, errors };
+            })(),
+            // Sync discounts
+            (async () => {
+              let synced = 0;
+              let errors = 0;
+              for (const discount of discounts) {
+                try {
+                  await discountService.upsertDiscount(discount, storeInfo);
+                  synced++;
+                } catch (error) {
+                  errors++;
+                }
+              }
+              return { synced, errors };
+            })(),
+          ]);
 
-            if (invSynced % 100 === 0) {
-              console.log(`  Inventory: ${invSynced}/${inventoryItems.length} (${((invSynced/inventoryItems.length)*100).toFixed(1)}%)`);
-            }
-          } catch (error) {
-            invErrors++;
-            if (invErrors <= 3) {
-              console.error(`  Error syncing inventory ${item.inventoryId}:`, error);
-            }
-          }
+          result.invSynced = invResult.synced;
+          result.invErrors = invResult.errors;
+          result.discSynced = discResult.synced;
+          result.discErrors = discResult.errors;
+
+          console.log(`✅ [${store.name}] Complete: ${result.invSynced} inventory, ${result.discSynced} discounts`);
+
+        } catch (storeError) {
+          console.error(`❌ Error syncing store "${store.name}":`, storeError);
         }
 
-        console.log(`✅ Inventory: ${invSynced}/${inventoryItems.length} synced${invErrors > 0 ? `, ${invErrors} errors` : ''}`);
-        totalInventorySynced += invSynced;
+        return result;
+      })
+    );
 
-        // ===== SYNC DISCOUNTS =====
-        console.log('\n🏷️  Syncing Discounts...');
-        console.log('─'.repeat(50));
-
-        const discounts = await dutchieService.getReportingDiscounts();
-        console.log(`Found ${discounts.length} discounts`);
-
-        let discSynced = 0;
-        let discErrors = 0;
-
-        for (const discount of discounts) {
-          try {
-            await discountService.upsertDiscount(discount, storeInfo);
-            discSynced++;
-
-            if (discSynced % 50 === 0) {
-              console.log(`  Discounts: ${discSynced}/${discounts.length} (${((discSynced/discounts.length)*100).toFixed(1)}%)`);
-            }
-          } catch (error) {
-            discErrors++;
-            if (discErrors <= 3) {
-              console.error(`  Error syncing discount ${discount.discountId}:`, error);
-            }
-          }
-        }
-
-        console.log(`✅ Discounts: ${discSynced}/${discounts.length} synced${discErrors > 0 ? `, ${discErrors} errors` : ''}`);
-        totalDiscountsSynced += discSynced;
-
-      } catch (storeError) {
-        console.error(`❌ Error syncing store "${store.name}":`, storeError);
-      }
+    // Aggregate results
+    for (const result of storeResults) {
+      totalInventorySynced += result.invSynced;
+      totalDiscountsSynced += result.discSynced;
     }
 
     // Final summary

@@ -29,76 +29,63 @@ async function syncDiscountsOnly() {
 
     console.log(`Found ${stores.length} valid store(s) to sync\n`);
 
-    // Sync discounts for each store
-    let totalDiscountsSynced = 0;
+    // Sync all stores in parallel
+    const storeResults = await Promise.all(
+      stores.map(async (store) => {
+        console.log(`🚀 Starting discount sync for: ${store.name} (ID: ${store.dutchieStoreID})`);
 
-    for (const store of stores) {
-      console.log(`\n${'='.repeat(60)}`);
-      console.log(`Syncing discounts for: ${store.name} (ID: ${store.dutchieStoreID})`);
-      console.log('='.repeat(60));
-
-      try {
-        // Initialize Dutchie service for this store
-        const dutchieService = new DutchieService({
-          apiKey: store.dutchieApiKey,
-          retailerId: store.dutchieStoreID,
-        });
-
-        // Initialize Discount service
-        const discountService = new DiscountService();
-
-        // Fetch discounts from Dutchie Reporting API
-        console.log('Fetching discounts from Dutchie...');
-        const discounts = await dutchieService.getReportingDiscounts();
-
-        if (discounts.length === 0) {
-          console.log('No discounts found for this store');
-          continue;
-        }
-
-        console.log(`Found ${discounts.length} discounts\n`);
-
-        // Store info to associate with discounts
-        const storeInfo = {
-          storeId: store.id!,
-          storeName: store.name,
-          dutchieStoreID: store.dutchieStoreID,
-        };
-
-        // Sync each discount to Strapi
-        console.log('Syncing discounts to Strapi...');
         let syncedCount = 0;
         let errorCount = 0;
 
-        for (const discount of discounts) {
-          try {
-            await discountService.upsertDiscount(discount, storeInfo);
-            syncedCount++;
+        try {
+          // Initialize Dutchie service for this store
+          const dutchieService = new DutchieService({
+            apiKey: store.dutchieApiKey,
+            retailerId: store.dutchieStoreID,
+          });
 
-            // Log progress every 50 items
-            if (syncedCount % 50 === 0) {
-              console.log(`  Progress: ${syncedCount}/${discounts.length} (${((syncedCount/discounts.length)*100).toFixed(1)}%)`);
-            }
-          } catch (error) {
-            errorCount++;
-            if (errorCount <= 5) {
-              console.error(`  Error syncing discount ${discount.discountId}:`, error);
+          // Initialize Discount service
+          const discountService = new DiscountService();
+
+          // Fetch discounts from Dutchie Reporting API
+          const discounts = await dutchieService.getReportingDiscounts();
+
+          if (discounts.length === 0) {
+            console.log(`[${store.name}] No discounts found`);
+            return { storeName: store.name, synced: 0, errors: 0 };
+          }
+
+          console.log(`[${store.name}] Fetched ${discounts.length} discounts`);
+
+          // Store info to associate with discounts
+          const storeInfo = {
+            storeId: store.id!,
+            storeName: store.name,
+            dutchieStoreID: store.dutchieStoreID,
+          };
+
+          // Sync each discount to Strapi
+          for (const discount of discounts) {
+            try {
+              await discountService.upsertDiscount(discount, storeInfo);
+              syncedCount++;
+            } catch (error) {
+              errorCount++;
             }
           }
+
+          console.log(`✅ [${store.name}] Complete: ${syncedCount}/${discounts.length} synced${errorCount > 0 ? `, ${errorCount} errors` : ''}`);
+
+        } catch (storeError) {
+          console.error(`❌ Error syncing store "${store.name}":`, storeError);
         }
 
-        console.log(`\n✅ Store "${store.name}" discount sync complete:`);
-        console.log(`   Synced: ${syncedCount}/${discounts.length}`);
-        if (errorCount > 0) {
-          console.log(`   Errors: ${errorCount}`);
-        }
+        return { storeName: store.name, synced: syncedCount, errors: errorCount };
+      })
+    );
 
-        totalDiscountsSynced += syncedCount;
-
-      } catch (storeError) {
-        console.error(`❌ Error syncing store "${store.name}":`, storeError);
-      }
-    }
+    // Aggregate results
+    const totalDiscountsSynced = storeResults.reduce((sum, r) => sum + r.synced, 0);
 
     // Final summary
     console.log(`\n${'='.repeat(60)}`);
