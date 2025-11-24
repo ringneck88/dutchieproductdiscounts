@@ -91,6 +91,44 @@ class DiscountService {
   }
 
   /**
+   * Helper function to map appliesToLocations with locationName and dutchieStoreID
+   */
+  private mapAppliesToLocations(
+    originalData: any,
+    storeInfo: { storeId: number; storeName: string; DutchieStoreID: string }
+  ): any[] {
+    // If originalData exists and is an array, map it to include both fields
+    if (Array.isArray(originalData)) {
+      return originalData.map((location: any) => ({
+        locationName: location.locationName || storeInfo.storeName,
+        dutchieStoreID: location.dutchieStoreID || storeInfo.DutchieStoreID,
+      }));
+    }
+
+    // If originalData is a string (single location ID), create a single-item array
+    if (typeof originalData === 'string') {
+      return [{
+        locationName: storeInfo.storeName,
+        dutchieStoreID: originalData,
+      }];
+    }
+
+    // If originalData is an object, convert it
+    if (originalData && typeof originalData === 'object') {
+      return [{
+        locationName: originalData.locationName || storeInfo.storeName,
+        dutchieStoreID: originalData.dutchieStoreID || storeInfo.DutchieStoreID,
+      }];
+    }
+
+    // Default: return current store info
+    return [{
+      locationName: storeInfo.storeName,
+      dutchieStoreID: storeInfo.DutchieStoreID,
+    }];
+  }
+
+  /**
    * Create or update a discount in Strapi
    * Uses discountId as unique identifier
    * Note: Logging removed to prevent Railway rate limiting
@@ -122,7 +160,7 @@ class DiscountService {
         includeNonCannabis: discountData.includeNonCannabis ?? false,
         firstTimeCustomerOnly: discountData.firstTimeCustomerOnly ?? false,
         stackOnOtherDiscounts: discountData.stackOnOtherDiscounts ?? false,
-        appliesToLocations: storeInfo.DutchieStoreID,
+        appliesToLocations: this.mapAppliesToLocations(discountData.appliesToLocations, storeInfo),
         weeklyRecurrenceInfo: discountData.weeklyRecurrenceInfo,
         products: discountData.products,
         productCategories: discountData.productCategories,
