@@ -270,14 +270,63 @@ class InventoryService {
 
   /**
    * Find an inventory item in Strapi by Dutchie inventory ID
+   * Tries multiple query formats to handle different Strapi versions/configs
    */
   private async findInventoryByDutchieId(inventoryId: number | string): Promise<StrapiInventory | null> {
+    const idStr = String(inventoryId);
+    const idNum = Number(inventoryId);
+
+    // Try different query formats
+    const queryFormats = [
+      // Strapi v4 format with $eq and string
+      { filters: { inventoryId: { $eq: idStr } } },
+      // Strapi v4 format with $eq and number
+      { filters: { inventoryId: { $eq: idNum } } },
+      // Simple filter format (some Strapi versions)
+      { filters: { inventoryId: idStr } },
+      // Simple filter with number
+      { filters: { inventoryId: idNum } },
+    ];
+
+    for (const params of queryFormats) {
+      try {
+        const response = await this.retryWithBackoff(() =>
+          this.client.get(`/api/${this.COLLECTION_NAME}`, {
+            params: {
+              ...params,
+              pagination: { pageSize: 1 }
+            }
+          })
+        );
+
+        const inventories = response.data.data;
+        if (inventories && inventories.length > 0) {
+          return {
+            id: inventories[0].id,
+            ...inventories[0].attributes || inventories[0]
+          };
+        }
+      } catch (error) {
+        // Try next format
+        continue;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Fallback find method - tries different query approaches
+   * Used when primary find fails but item clearly exists (unique constraint error)
+   */
+  private async findInventoryByDutchieIdFallback(inventoryId: number | string): Promise<StrapiInventory | null> {
     try {
+      // Try with number type
       const response = await this.retryWithBackoff(() =>
         this.client.get(`/api/${this.COLLECTION_NAME}`, {
           params: {
             filters: {
-              inventoryId: { $eq: String(inventoryId) }
+              inventoryId: { $eq: Number(inventoryId) }
             },
             pagination: { pageSize: 1 }
           }
@@ -292,9 +341,28 @@ class InventoryService {
         };
       }
 
+      // Try with $contains filter as last resort
+      const containsResponse = await this.retryWithBackoff(() =>
+        this.client.get(`/api/${this.COLLECTION_NAME}`, {
+          params: {
+            filters: {
+              inventoryId: { $contains: String(inventoryId) }
+            },
+            pagination: { pageSize: 1 }
+          }
+        })
+      );
+
+      const containsItems = containsResponse.data.data;
+      if (containsItems && containsItems.length > 0) {
+        return {
+          id: containsItems[0].id,
+          ...containsItems[0].attributes || containsItems[0]
+        };
+      }
+
       return null;
     } catch (error) {
-      console.error(`Error finding inventory ${inventoryId}:`, error);
       return null;
     }
   }
@@ -334,22 +402,69 @@ class InventoryService {
 
   /**
    * Bulk sync all inventory for a store
-   * Creates new items, updates existing ones (by inventoryId)
+   * Deletes all existing items for this store, then creates fresh (like discount service)
    */
   async bulkReplaceInventory(
     inventoryItems: any[],
     storeInfo: { storeId: number; storeName: string; dutchieStoreID: string }
   ): Promise<{ created: number; deleted: number; errors: number }> {
-    const stats = { created: 0, deleted: 0, errors: 0, updated: 0 };
+    const stats = { created: 0, deleted: 0, errors: 0 };
+    const batchSize = 50;
 
     try {
-      // Filter items with quantity >= 5
+      // Step 1: Find and delete all existing inventory for this store
+      console.log(`[${storeInfo.storeName}] Finding existing inventory...`);
+      let page = 1;
+      let hasMore = true;
+      const idsToDelete: number[] = [];
+
+      while (hasMore) {
+        const response = await this.retryWithBackoff(() =>
+          this.client.get(`/api/${this.COLLECTION_NAME}`, {
+            params: {
+              filters: {
+                dutchieStoreID: { $eq: storeInfo.dutchieStoreID }
+              },
+              pagination: { page, pageSize: 100 },
+              fields: ['id']
+            }
+          })
+        );
+
+        const items = response.data.data;
+        for (const item of items) {
+          idsToDelete.push(item.id);
+        }
+
+        hasMore = items.length === 100;
+        page++;
+      }
+
+      // Delete in parallel batches
+      if (idsToDelete.length > 0) {
+        console.log(`[${storeInfo.storeName}] Deleting ${idsToDelete.length} existing items...`);
+        let deletedSoFar = 0;
+        for (let i = 0; i < idsToDelete.length; i += batchSize) {
+          const batch = idsToDelete.slice(i, i + batchSize);
+          await Promise.all(
+            batch.map(id =>
+              this.retryWithBackoff(() =>
+                this.client.delete(`/api/${this.COLLECTION_NAME}/${id}`)
+              ).catch(() => {})
+            )
+          );
+          deletedSoFar += batch.length;
+          console.log(`[${storeInfo.storeName}] Deleting... ${deletedSoFar}/${idsToDelete.length}`);
+        }
+        stats.deleted = idsToDelete.length;
+      }
+
+      // Step 2: Filter items with quantity >= 5
       const validItems = inventoryItems.filter(item => (item.quantityAvailable ?? 0) >= 5);
-      console.log(`[${storeInfo.storeName}] Syncing ${validItems.length} items (filtered ${inventoryItems.length - validItems.length} with qty < 5)...`);
+      console.log(`[${storeInfo.storeName}] Creating ${validItems.length} items (filtered ${inventoryItems.length - validItems.length} with qty < 5)...`);
 
-      // Process in parallel batches - create or update
-      const batchSize = 50;
-
+      // Step 3: Create all items fresh (or update if already exists without dutchieStoreID)
+      let updatedCount = 0;
       for (let i = 0; i < validItems.length; i += batchSize) {
         const batch = validItems.slice(i, i + batchSize);
 
@@ -358,35 +473,28 @@ class InventoryService {
           batch.map(async (item) => {
             try {
               const mappedData = this.mapInventoryData(item, storeInfo);
-
-              // Try to find existing first, then create or update
-              const existing = await this.findInventoryByDutchieId(item.inventoryId);
-
-              if (existing) {
-                // Update existing
-                try {
-                  await this.retryWithBackoff(() =>
-                    this.client.put(`/api/${this.COLLECTION_NAME}/${existing.id}`, { data: mappedData })
-                  );
-                  return 'updated';
-                } catch (updateError: any) {
-                  // If 404, item was deleted - try to create
-                  if (updateError.response?.status === 404) {
-                    await this.retryWithBackoff(() =>
-                      this.client.post(`/api/${this.COLLECTION_NAME}`, { data: mappedData })
-                    );
-                    return 'created';
-                  }
-                  throw updateError;
-                }
-              } else {
-                // Create new
-                await this.retryWithBackoff(() =>
-                  this.client.post(`/api/${this.COLLECTION_NAME}`, { data: mappedData })
-                );
-                return 'created';
-              }
+              await this.retryWithBackoff(() =>
+                this.client.post(`/api/${this.COLLECTION_NAME}`, { data: mappedData })
+              );
+              return 'created';
             } catch (error: any) {
+              // Handle unique constraint error - item exists but wasn't deleted (no dutchieStoreID)
+              if (error.response?.status === 400 &&
+                  error.response?.data?.error?.message?.includes('unique')) {
+                // Find and update the existing item
+                const existing = await this.findInventoryByDutchieId(item.inventoryId);
+                if (existing) {
+                  try {
+                    const mappedData = this.mapInventoryData(item, storeInfo);
+                    await this.retryWithBackoff(() =>
+                      this.client.put(`/api/${this.COLLECTION_NAME}/${existing.id}`, { data: mappedData })
+                    );
+                    return 'updated';
+                  } catch (updateErr) {
+                    // Update failed, count as error
+                  }
+                }
+              }
               if (!firstError) {
                 firstError = error.response?.data || error.message;
               }
@@ -400,35 +508,12 @@ class InventoryService {
         }
 
         stats.created += results.filter(r => r === 'created').length;
-        stats.updated += results.filter(r => r === 'updated').length;
+        updatedCount += results.filter(r => r === 'updated').length;
         stats.errors += results.filter(r => r === 'error').length;
 
         const progress = i + batch.length;
-        console.log(`[${storeInfo.storeName}] Progress: ${progress}/${validItems.length} (${stats.created} new, ${stats.updated} updated${stats.errors > 0 ? `, ${stats.errors} errors` : ''})`);
-      }
-
-      // Delete items with qty < 5 that exist in Strapi
-      const lowQtyItems = inventoryItems.filter(item => (item.quantityAvailable ?? 0) < 5);
-      if (lowQtyItems.length > 0) {
-        console.log(`[${storeInfo.storeName}] Removing ${lowQtyItems.length} low quantity items...`);
-
-        for (let i = 0; i < lowQtyItems.length; i += batchSize) {
-          const batch = lowQtyItems.slice(i, i + batchSize);
-
-          await Promise.all(
-            batch.map(async (item) => {
-              try {
-                const existing = await this.findInventoryByDutchieId(item.inventoryId);
-                if (existing) {
-                  await this.client.delete(`/api/${this.COLLECTION_NAME}/${existing.id}`);
-                  stats.deleted++;
-                }
-              } catch (e) {
-                // Ignore delete errors
-              }
-            })
-          );
-        }
+        const updateStr = updatedCount > 0 ? `, ${updatedCount} updated` : '';
+        console.log(`[${storeInfo.storeName}] Creating... ${stats.created}/${validItems.length}${updateStr}${stats.errors > 0 ? ` (${stats.errors} errors)` : ''}`);
       }
 
     } catch (error) {
