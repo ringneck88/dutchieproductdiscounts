@@ -34,14 +34,14 @@ async function syncInventoryOnly() {
 
     for (const store of stores) {
       console.log(`\n${'='.repeat(60)}`);
-      console.log(`Syncing inventory for: ${store.name} (ID: ${store.DutchieStoreID})`);
+      console.log(`Syncing inventory for: ${store.name} (ID: ${store.dutchieStoreID})`);
       console.log('='.repeat(60));
 
       try {
         // Initialize Dutchie service for this store
         const dutchieService = new DutchieService({
           apiKey: store.dutchieApiKey,
-          retailerId: store.DutchieStoreID,
+          retailerId: store.dutchieStoreID,
         });
 
         // Initialize Inventory service
@@ -62,14 +62,8 @@ async function syncInventoryOnly() {
         const storeInfo = {
           storeId: store.id!,  // Non-null assertion since stores from Strapi always have IDs
           storeName: store.name,
-          DutchieStoreID: store.DutchieStoreID,
+          dutchieStoreID: store.dutchieStoreID,
         };
-
-        // Debug: Log store info to verify DutchieStoreID is populated
-        console.log('DEBUG Store object keys:', Object.keys(store));
-        console.log('DEBUG store.DutchieStoreID:', store.DutchieStoreID);
-        console.log('DEBUG store.dutchieStoreID:', (store as any).dutchieStoreID);
-        console.log('DEBUG storeInfo:', JSON.stringify(storeInfo, null, 2));
 
         // Sync each inventory item to Strapi
         console.log('Syncing inventory items to Strapi...');

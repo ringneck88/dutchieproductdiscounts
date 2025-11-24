@@ -95,13 +95,13 @@ class DiscountService {
    */
   private mapAppliesToLocations(
     originalData: any,
-    storeInfo: { storeId: number; storeName: string; DutchieStoreID: string }
+    storeInfo: { storeId: number; storeName: string; dutchieStoreID: string }
   ): any[] {
     // If originalData exists and is an array, map it to include both fields
     if (Array.isArray(originalData)) {
       return originalData.map((location: any) => ({
         locationName: location.locationName || storeInfo.storeName,
-        dutchieStoreID: location.dutchieStoreID || storeInfo.DutchieStoreID,
+        dutchieStoreID: location.dutchieStoreID || storeInfo.dutchieStoreID,
       }));
     }
 
@@ -117,14 +117,14 @@ class DiscountService {
     if (originalData && typeof originalData === 'object') {
       return [{
         locationName: originalData.locationName || storeInfo.storeName,
-        dutchieStoreID: originalData.dutchieStoreID || storeInfo.DutchieStoreID,
+        dutchieStoreID: originalData.dutchieStoreID || storeInfo.dutchieStoreID,
       }];
     }
 
     // Default: return current store info
     return [{
       locationName: storeInfo.storeName,
-      dutchieStoreID: storeInfo.DutchieStoreID,
+      dutchieStoreID: storeInfo.dutchieStoreID,
     }];
   }
 
@@ -133,7 +133,7 @@ class DiscountService {
    * Uses discountId as unique identifier
    * Note: Logging removed to prevent Railway rate limiting
    */
-  async upsertDiscount(discountData: any, storeInfo: { storeId: number; storeName: string; DutchieStoreID: string }): Promise<void> {
+  async upsertDiscount(discountData: any, storeInfo: { storeId: number; storeName: string; dutchieStoreID: string }): Promise<void> {
     try {
       // Check if discount already exists
       const existingDiscount = await this.findDiscountByDutchieId(discountData.discountId);

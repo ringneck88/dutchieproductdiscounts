@@ -139,7 +139,7 @@ class SyncService {
       // Create a Dutchie service instance for this store
       const dutchieService = new DutchieService({
         apiKey: store.dutchieApiKey,
-        retailerId: store.DutchieStoreID,
+        retailerId: store.dutchieStoreID,
       });
 
       // Fetch all products and discounts from Dutchie for this store
@@ -184,7 +184,7 @@ class SyncService {
             await redisService.cacheProductDiscounts(
               product,
               applicableDiscounts,
-              store.id?.toString() || store.DutchieStoreID,
+              store.id?.toString() || store.dutchieStoreID,
               store.name
             );
           } catch (error) {
@@ -369,7 +369,7 @@ class SyncService {
       discountEndTimestamp: this.normalizeTimestamp(discount.validUntil),
       discountIsActive: discount.isActive,
       discountDutchieId: discount.discountId.toString(),
-      storeId: store.id?.toString() || store.DutchieStoreID,
+      storeId: store.id?.toString() || store.dutchieStoreID,
       storeName: store.name,
       storeLocation: store.location || '',
     };
@@ -478,7 +478,7 @@ class SyncService {
           // Create Dutchie service instance for this store
           const dutchieService = new DutchieService({
             apiKey: store.dutchieApiKey,
-            retailerId: store.DutchieStoreID,
+            retailerId: store.dutchieStoreID,
           });
 
           // Fetch discounts from Dutchie Reporting API
@@ -511,7 +511,7 @@ class SyncService {
           const storeInfo = {
             storeId: store.id!,
             storeName: store.name,
-            DutchieStoreID: store.DutchieStoreID,
+            dutchieStoreID: store.dutchieStoreID,
           };
 
           for (const discount of activeDiscounts) {
@@ -606,7 +606,7 @@ class SyncService {
           // Create Dutchie service instance for this store
           const dutchieService = new DutchieService({
             apiKey: store.dutchieApiKey,
-            retailerId: store.DutchieStoreID,
+            retailerId: store.dutchieStoreID,
           });
 
           // Fetch inventory from Dutchie Reporting API
@@ -620,7 +620,7 @@ class SyncService {
           const storeInfo = {
             storeId: store.id!,
             storeName: store.name,
-            DutchieStoreID: store.DutchieStoreID,
+            dutchieStoreID: store.dutchieStoreID,
           };
 
           for (const item of inventory) {

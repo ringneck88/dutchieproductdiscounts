@@ -46,16 +46,10 @@ class StoreService {
         return {
           id: item.id,
           ...attrs,
-          // Normalize DutchieStoreID - handle different casing from Strapi
-          DutchieStoreID: attrs.DutchieStoreID || attrs.dutchieStoreID || attrs.dutchiestoreid,
+          // Normalize dutchieStoreID - handle different casing from Strapi
+          dutchieStoreID: attrs.dutchieStoreID || attrs.DutchieStoreID || attrs.dutchiestoreid,
         };
       });
-
-      // Debug: Log the first store to see actual field names
-      if (allStores.length > 0) {
-        console.log('DEBUG: First store raw data:', JSON.stringify(response.data.data[0], null, 2));
-        console.log('DEBUG: First mapped store:', JSON.stringify(allStores[0], null, 2));
-      }
 
       // Filter for active stores in code
       const stores = allStores.filter((store) => store.isActive === true || store.isActive === undefined);
@@ -89,8 +83,8 @@ class StoreService {
         return {
           id: item.id,
           ...attrs,
-          // Normalize DutchieStoreID - handle different casing from Strapi
-          DutchieStoreID: attrs.DutchieStoreID || attrs.dutchieStoreID || attrs.dutchiestoreid,
+          // Normalize dutchieStoreID - handle different casing from Strapi
+          dutchieStoreID: attrs.dutchieStoreID || attrs.DutchieStoreID || attrs.dutchiestoreid,
         };
       });
     } catch (error) {
@@ -111,8 +105,8 @@ class StoreService {
       return {
         id: item.id,
         ...attrs,
-        // Normalize DutchieStoreID - handle different casing from Strapi
-        DutchieStoreID: attrs.DutchieStoreID || attrs.dutchieStoreID || attrs.dutchiestoreid,
+        // Normalize dutchieStoreID - handle different casing from Strapi
+        dutchieStoreID: attrs.dutchieStoreID || attrs.DutchieStoreID || attrs.dutchiestoreid,
       } as Store;
     } catch (error) {
       console.error(`Error fetching store ${storeId}:`, error);
@@ -129,8 +123,8 @@ class StoreService {
       return false;
     }
 
-    if (!store.DutchieStoreID) {
-      console.warn(`Store "${store.name}" is missing DutchieStoreID`);
+    if (!store.dutchieStoreID) {
+      console.warn(`Store "${store.name}" is missing dutchieStoreID`);
       return false;
     }
 

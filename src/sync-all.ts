@@ -38,14 +38,14 @@ async function syncAll() {
 
     for (const store of stores) {
       console.log(`\n${'═'.repeat(70)}`);
-      console.log(`STORE: ${store.name} (ID: ${store.DutchieStoreID})`);
+      console.log(`STORE: ${store.name} (ID: ${store.dutchieStoreID})`);
       console.log('═'.repeat(70));
 
       try {
         // Initialize services for this store
         const dutchieService = new DutchieService({
           apiKey: store.dutchieApiKey,
-          retailerId: store.DutchieStoreID,
+          retailerId: store.dutchieStoreID,
         });
 
         const inventoryService = new InventoryService();
@@ -54,7 +54,7 @@ async function syncAll() {
         const storeInfo = {
           storeId: store.id!,
           storeName: store.name,
-          DutchieStoreID: store.DutchieStoreID,
+          dutchieStoreID: store.dutchieStoreID,
         };
 
         // ===== SYNC INVENTORY =====

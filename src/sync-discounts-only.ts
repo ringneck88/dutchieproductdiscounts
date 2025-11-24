@@ -34,14 +34,14 @@ async function syncDiscountsOnly() {
 
     for (const store of stores) {
       console.log(`\n${'='.repeat(60)}`);
-      console.log(`Syncing discounts for: ${store.name} (ID: ${store.DutchieStoreID})`);
+      console.log(`Syncing discounts for: ${store.name} (ID: ${store.dutchieStoreID})`);
       console.log('='.repeat(60));
 
       try {
         // Initialize Dutchie service for this store
         const dutchieService = new DutchieService({
           apiKey: store.dutchieApiKey,
-          retailerId: store.DutchieStoreID,
+          retailerId: store.dutchieStoreID,
         });
 
         // Initialize Discount service
@@ -62,7 +62,7 @@ async function syncDiscountsOnly() {
         const storeInfo = {
           storeId: store.id!,
           storeName: store.name,
-          DutchieStoreID: store.DutchieStoreID,
+          dutchieStoreID: store.dutchieStoreID,
         };
 
         // Sync each discount to Strapi

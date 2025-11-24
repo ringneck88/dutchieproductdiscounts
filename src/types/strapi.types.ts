@@ -7,7 +7,7 @@ export interface Store {
   id?: number;
   name: string;
   dutchieApiKey: string;
-  DutchieStoreID: string; // Changed to match Strapi field name
+  dutchieStoreID: string; // camelCase to match Strapi field name
   location?: string;
   isActive?: boolean;
   city?: string;

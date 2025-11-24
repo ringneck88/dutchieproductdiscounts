@@ -118,7 +118,7 @@ class InventoryService {
    * Uses inventoryId as unique identifier
    * Note: Logging removed to prevent Railway rate limiting
    */
-  async upsertInventory(inventoryData: any, storeInfo: { storeId: number; storeName: string; DutchieStoreID: string }): Promise<void> {
+  async upsertInventory(inventoryData: any, storeInfo: { storeId: number; storeName: string; dutchieStoreID: string }): Promise<void> {
     try {
       // Check if inventory item already exists
       const existingInventory = await this.findInventoryByDutchieId(inventoryData.inventoryId);
@@ -126,7 +126,7 @@ class InventoryService {
       // Convert IDs to strings as Strapi schema expects string types
       const mappedData: StrapiInventory = {
         inventoryId: String(inventoryData.inventoryId),
-        dutchieStoreID: storeInfo.DutchieStoreID,
+        dutchieStoreID: storeInfo.dutchieStoreID,
         productId: inventoryData.productId ? String(inventoryData.productId) : undefined,
         sku: inventoryData.sku,
         productName: inventoryData.productName,
