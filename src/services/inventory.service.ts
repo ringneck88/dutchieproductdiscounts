@@ -369,7 +369,7 @@ class InventoryService {
 
       // Delete in parallel batches
       if (idsToDelete.length > 0) {
-        const deleteBatchSize = 500;
+        const deleteBatchSize = 50; // Smaller batches to avoid overwhelming Strapi
         let deletedSoFar = 0;
         for (let i = 0; i < idsToDelete.length; i += deleteBatchSize) {
           const batch = idsToDelete.slice(i, i + deleteBatchSize);
@@ -391,7 +391,7 @@ class InventoryService {
       console.log(`[${storeInfo.storeName}] Creating ${validItems.length} items (filtered ${inventoryItems.length - validItems.length} with qty < 5)...`);
 
       // Step 3: Create in parallel batches
-      const createBatchSize = 500;
+      const createBatchSize = 50; // Smaller batches to avoid overwhelming Strapi
 
       for (let i = 0; i < validItems.length; i += createBatchSize) {
         const batch = validItems.slice(i, i + createBatchSize);
@@ -404,7 +404,11 @@ class InventoryService {
                 this.client.post(`/api/${this.COLLECTION_NAME}`, { data: mappedData })
               );
               return true;
-            } catch (error) {
+            } catch (error: any) {
+              // Log first error to help debug
+              if (stats.errors === 0) {
+                console.error(`[${storeInfo.storeName}] First error:`, error.response?.data || error.message);
+              }
               return false;
             }
           })

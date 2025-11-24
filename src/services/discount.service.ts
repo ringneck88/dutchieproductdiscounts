@@ -364,7 +364,7 @@ class DiscountService {
 
       // Delete in parallel batches
       if (idsToDelete.length > 0) {
-        const deleteBatchSize = 500;
+        const deleteBatchSize = 50; // Smaller batches to avoid overwhelming Strapi
         let deletedSoFar = 0;
         for (let i = 0; i < idsToDelete.length; i += deleteBatchSize) {
           const batch = idsToDelete.slice(i, i + deleteBatchSize);
@@ -396,7 +396,7 @@ class DiscountService {
       console.log(`[${storeInfo.storeName}] Creating ${activeDiscounts.length} discounts (filtered ${discounts.length - activeDiscounts.length} inactive/expired)...`);
 
       // Step 3: Create in parallel batches
-      const createBatchSize = 500;
+      const createBatchSize = 50; // Smaller batches to avoid overwhelming Strapi
 
       for (let i = 0; i < activeDiscounts.length; i += createBatchSize) {
         const batch = activeDiscounts.slice(i, i + createBatchSize);
@@ -409,7 +409,11 @@ class DiscountService {
                 this.client.post(`/api/${this.COLLECTION_NAME}`, { data: mappedData })
               );
               return true;
-            } catch (error) {
+            } catch (error: any) {
+              // Log first error to help debug
+              if (stats.errors === 0) {
+                console.error(`[${storeInfo.storeName}] First error:`, error.response?.data || error.message);
+              }
               return false;
             }
           })
