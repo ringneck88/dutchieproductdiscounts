@@ -314,6 +314,163 @@ class DiscountService {
       return 0;
     }
   }
+
+  /**
+   * Bulk replace all discounts for a store
+   * Much faster than individual upserts - deletes all then bulk creates
+   */
+  async bulkReplaceDiscounts(
+    discounts: any[],
+    storeInfo: { storeId: number; storeName: string; dutchieStoreID: string }
+  ): Promise<{ created: number; deleted: number; errors: number }> {
+    const stats = { created: 0, deleted: 0, errors: 0 };
+
+    try {
+      // Step 1: Find all existing discounts for this store by checking appliesToLocations
+      console.log(`[${storeInfo.storeName}] Finding existing discounts...`);
+      let page = 1;
+      let hasMore = true;
+      const idsToDelete: number[] = [];
+
+      while (hasMore) {
+        const response = await this.retryWithBackoff(() =>
+          this.client.get(`/api/${this.COLLECTION_NAME}`, {
+            params: {
+              pagination: { page, pageSize: 100 },
+              fields: ['id', 'appliesToLocations']
+            }
+          })
+        );
+
+        const items = response.data.data;
+
+        // Filter to only discounts that belong to this store
+        for (const item of items) {
+          const attrs = item.attributes || item;
+          const locations = attrs.appliesToLocations;
+          if (Array.isArray(locations)) {
+            const belongsToStore = locations.some(
+              (loc: any) => loc.dutchieStoreID === storeInfo.dutchieStoreID
+            );
+            if (belongsToStore) {
+              idsToDelete.push(item.id);
+            }
+          }
+        }
+
+        hasMore = items.length === 100;
+        page++;
+      }
+
+      // Delete in parallel batches
+      if (idsToDelete.length > 0) {
+        const deleteBatchSize = 500;
+        let deletedSoFar = 0;
+        for (let i = 0; i < idsToDelete.length; i += deleteBatchSize) {
+          const batch = idsToDelete.slice(i, i + deleteBatchSize);
+          await Promise.all(
+            batch.map(id =>
+              this.retryWithBackoff(() =>
+                this.client.delete(`/api/${this.COLLECTION_NAME}/${id}`)
+              ).catch(() => {})
+            )
+          );
+          deletedSoFar += batch.length;
+          console.log(`[${storeInfo.storeName}] Deleting discounts... ${deletedSoFar}/${idsToDelete.length}`);
+        }
+        stats.deleted = idsToDelete.length;
+      }
+
+      // Step 2: Filter active discounts only
+      const now = new Date();
+      const activeDiscounts = discounts.filter(discount => {
+        if (discount.isActive === false) return false;
+        if (discount.isDeleted === true) return false;
+        if (discount.validUntil) {
+          const validUntil = new Date(discount.validUntil);
+          if (validUntil < now) return false;
+        }
+        return true;
+      });
+
+      console.log(`[${storeInfo.storeName}] Creating ${activeDiscounts.length} discounts (filtered ${discounts.length - activeDiscounts.length} inactive/expired)...`);
+
+      // Step 3: Create in parallel batches
+      const createBatchSize = 500;
+
+      for (let i = 0; i < activeDiscounts.length; i += createBatchSize) {
+        const batch = activeDiscounts.slice(i, i + createBatchSize);
+
+        const results = await Promise.all(
+          batch.map(async (discount) => {
+            try {
+              const mappedData = this.mapDiscountData(discount, storeInfo);
+              await this.retryWithBackoff(() =>
+                this.client.post(`/api/${this.COLLECTION_NAME}`, { data: mappedData })
+              );
+              return true;
+            } catch (error) {
+              return false;
+            }
+          })
+        );
+
+        stats.created += results.filter(r => r).length;
+        stats.errors += results.filter(r => !r).length;
+        console.log(`[${storeInfo.storeName}] Creating discounts... ${stats.created}/${activeDiscounts.length}${stats.errors > 0 ? ` (${stats.errors} errors)` : ''}`);
+      }
+
+    } catch (error) {
+      console.error(`[${storeInfo.storeName}] Bulk replace discounts error:`, error);
+      throw error;
+    }
+
+    return stats;
+  }
+
+  /**
+   * Map discount data to Strapi format
+   */
+  private mapDiscountData(
+    discountData: any,
+    storeInfo: { storeId: number; storeName: string; dutchieStoreID: string }
+  ): StrapiDiscount {
+    return {
+      discountId: String(discountData.discountId),
+      discountName: discountData.discountName,
+      discountCode: discountData.discountCode,
+      discountAmount: discountData.discountAmount,
+      discountType: discountData.discountType,
+      discountMethod: discountData.discountMethod,
+      applicationMethod: discountData.applicationMethod,
+      externalId: discountData.externalId,
+      isActive: discountData.isActive ?? true,
+      isAvailableOnline: discountData.isAvailableOnline ?? true,
+      isDeleted: discountData.isDeleted ?? false,
+      requireManagerApproval: discountData.requireManagerApproval ?? false,
+      validFrom: discountData.validFrom,
+      validUntil: discountData.validUntil,
+      thresholdType: discountData.thresholdType,
+      minimumItemsRequired: discountData.minimumItemsRequired,
+      maximumItemsAllowed: discountData.maximumItemsAllowed,
+      maximumUsageCount: discountData.maximumUsageCount,
+      includeNonCannabis: discountData.includeNonCannabis ?? false,
+      firstTimeCustomerOnly: discountData.firstTimeCustomerOnly ?? false,
+      stackOnOtherDiscounts: discountData.stackOnOtherDiscounts ?? false,
+      appliesToLocations: this.mapAppliesToLocations(discountData.appliesToLocations, storeInfo),
+      weeklyRecurrenceInfo: discountData.weeklyRecurrenceInfo,
+      products: discountData.products,
+      productCategories: discountData.productCategories,
+      brands: discountData.brands,
+      vendors: discountData.vendors,
+      strains: discountData.strains,
+      tiers: discountData.tiers,
+      tags: discountData.tags,
+      inventoryTags: discountData.inventoryTags,
+      customerTypes: discountData.customerTypes,
+      discountGroups: discountData.discountGroups,
+    };
+  }
 }
 
 export default DiscountService;

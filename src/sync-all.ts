@@ -67,26 +67,16 @@ async function syncAll() {
 
           console.log(`[${store.name}] Fetched ${inventoryItems.length} inventory, ${discounts.length} discounts`);
 
-          // Sync inventory (bulk replace) and discounts in parallel
+          // Sync inventory and discounts in parallel (both use bulk replace)
           const [invResult, discResult] = await Promise.all([
             // Bulk replace inventory (much faster)
             inventoryService.bulkReplaceInventory(inventoryItems, storeInfo)
               .then(r => ({ synced: r.created, errors: r.errors }))
               .catch(() => ({ synced: 0, errors: 1 })),
-            // Sync discounts
-            (async () => {
-              let synced = 0;
-              let errors = 0;
-              for (const discount of discounts) {
-                try {
-                  await discountService.upsertDiscount(discount, storeInfo);
-                  synced++;
-                } catch (error) {
-                  errors++;
-                }
-              }
-              return { synced, errors };
-            })(),
+            // Bulk replace discounts (much faster)
+            discountService.bulkReplaceDiscounts(discounts, storeInfo)
+              .then(r => ({ synced: r.created, errors: r.errors }))
+              .catch(() => ({ synced: 0, errors: 1 })),
           ]);
 
           result.invSynced = invResult.synced;

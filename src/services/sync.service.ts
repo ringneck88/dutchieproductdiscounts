@@ -485,52 +485,29 @@ class SyncService {
           const allDiscounts = await dutchieService.getReportingDiscounts();
           console.log(`  Fetched ${allDiscounts.length} total discounts from Dutchie`);
 
-          // Filter out inactive, deleted, and expired discounts
-          const now = new Date();
-          const activeDiscounts = allDiscounts.filter(discount => {
-            // Skip if not active
-            if (discount.isActive === false) return false;
-
-            // Skip if deleted
-            if (discount.isDeleted === true) return false;
-
-            // Skip if expired (validUntil is in the past)
-            if (discount.validUntil) {
-              const validUntil = new Date(discount.validUntil);
-              if (validUntil < now) return false;
-            }
-
-            return true;
-          });
-
-          console.log(`  Filtered to ${activeDiscounts.length} active, non-deleted, non-expired discounts`);
-          stats.totalDiscounts += activeDiscounts.length;
-
-          // Sync each active discount to Strapi with batched progress logging
-          let processedCount = 0;
           const storeInfo = {
             storeId: store.id!,
             storeName: store.name,
             dutchieStoreID: store.dutchieStoreID,
           };
 
-          for (const discount of activeDiscounts) {
-            try {
-              await discountService.upsertDiscount(discount, storeInfo);
-              allActiveDiscountIds.push(discount.discountId);
-              processedCount++;
+          // Bulk replace - much faster than individual upserts (filtering done inside)
+          const result = await discountService.bulkReplaceDiscounts(allDiscounts, storeInfo);
 
-              // Log progress every 50 items to avoid rate limiting
-              if (processedCount % 50 === 0) {
-                console.log(`  Progress: ${processedCount}/${activeDiscounts.length} discounts synced`);
+          stats.totalDiscounts += result.created;
+
+          // Track active discount IDs for cleanup
+          const now = new Date();
+          allDiscounts.forEach(discount => {
+            if (discount.isActive !== false && discount.isDeleted !== true) {
+              if (!discount.validUntil || new Date(discount.validUntil) >= now) {
+                allActiveDiscountIds.push(discount.discountId);
               }
-            } catch (error) {
-              console.error(`  Error syncing discount ${discount.discountId}:`, error);
-              stats.errors++;
             }
-          }
+          });
 
-          console.log(`  ✓ Completed sync for ${store.name}: ${processedCount} discounts`);
+          stats.errors += result.errors;
+          console.log(`  ✓ Completed sync for ${store.name}: ${result.created} created, ${result.deleted} deleted`);
         } catch (error) {
           console.error(`  Error syncing store "${store.name}":`, error);
           stats.errors++;
@@ -615,31 +592,24 @@ class SyncService {
 
           stats.totalInventory += inventory.length;
 
-          // Sync each inventory item to Strapi with batched progress logging
-          let processedCount = 0;
           const storeInfo = {
             storeId: store.id!,
             storeName: store.name,
             dutchieStoreID: store.dutchieStoreID,
           };
 
-          for (const item of inventory) {
-            try {
-              await inventoryService.upsertInventory(item, storeInfo);
+          // Bulk replace - much faster than individual upserts
+          const result = await inventoryService.bulkReplaceInventory(inventory, storeInfo);
+
+          // Track active inventory IDs for cleanup
+          inventory.forEach(item => {
+            if ((item.quantityAvailable ?? 0) >= 5) {
               allActiveInventoryIds.push(item.inventoryId);
-              processedCount++;
-
-              // Log progress every 100 items to avoid rate limiting
-              if (processedCount % 100 === 0) {
-                console.log(`  Progress: ${processedCount}/${inventory.length} items synced`);
-              }
-            } catch (error) {
-              console.error(`  Error syncing inventory ${item.inventoryId}:`, error);
-              stats.errors++;
             }
-          }
+          });
 
-          console.log(`  ✓ Completed sync for ${store.name}: ${processedCount} items`);
+          stats.errors += result.errors;
+          console.log(`  ✓ Completed sync for ${store.name}: ${result.created} created, ${result.deleted} deleted`);
         } catch (error) {
           console.error(`  Error syncing store "${store.name}":`, error);
           stats.errors++;

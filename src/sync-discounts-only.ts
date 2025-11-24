@@ -29,13 +29,10 @@ async function syncDiscountsOnly() {
 
     console.log(`Found ${stores.length} valid store(s) to sync\n`);
 
-    // Sync all stores in parallel
+    // Sync all stores in parallel using bulk replace (much faster)
     const storeResults = await Promise.all(
       stores.map(async (store) => {
         console.log(`🚀 Starting discount sync for: ${store.name} (ID: ${store.dutchieStoreID})`);
-
-        let syncedCount = 0;
-        let errorCount = 0;
 
         try {
           // Initialize Dutchie service for this store
@@ -64,23 +61,17 @@ async function syncDiscountsOnly() {
             dutchieStoreID: store.dutchieStoreID,
           };
 
-          // Sync each discount to Strapi
-          for (const discount of discounts) {
-            try {
-              await discountService.upsertDiscount(discount, storeInfo);
-              syncedCount++;
-            } catch (error) {
-              errorCount++;
-            }
-          }
+          // Bulk replace - delete all then create (much faster than upsert)
+          const result = await discountService.bulkReplaceDiscounts(discounts, storeInfo);
 
-          console.log(`✅ [${store.name}] Complete: ${syncedCount}/${discounts.length} synced${errorCount > 0 ? `, ${errorCount} errors` : ''}`);
+          console.log(`✅ [${store.name}] Complete: ${result.created} created, ${result.deleted} deleted${result.errors > 0 ? `, ${result.errors} errors` : ''}`);
+
+          return { storeName: store.name, synced: result.created, errors: result.errors };
 
         } catch (storeError) {
           console.error(`❌ Error syncing store "${store.name}":`, storeError);
+          return { storeName: store.name, synced: 0, errors: 1 };
         }
-
-        return { storeName: store.name, synced: syncedCount, errors: errorCount };
       })
     );
 
