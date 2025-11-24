@@ -331,6 +331,156 @@ class InventoryService {
       return 0;
     }
   }
+
+  /**
+   * Bulk replace all inventory for a store
+   * Much faster than individual upserts - deletes all then bulk creates
+   */
+  async bulkReplaceInventory(
+    inventoryItems: any[],
+    storeInfo: { storeId: number; storeName: string; dutchieStoreID: string }
+  ): Promise<{ created: number; deleted: number; errors: number }> {
+    const stats = { created: 0, deleted: 0, errors: 0 };
+
+    try {
+      // Step 1: Delete all existing inventory for this store
+      console.log(`[${storeInfo.storeName}] Deleting existing inventory...`);
+      let page = 1;
+      let hasMore = true;
+      const idsToDelete: number[] = [];
+
+      while (hasMore) {
+        const response = await this.retryWithBackoff(() =>
+          this.client.get(`/api/${this.COLLECTION_NAME}`, {
+            params: {
+              filters: { dutchieStoreID: { $eq: storeInfo.dutchieStoreID } },
+              pagination: { page, pageSize: 100 },
+              fields: ['id']
+            }
+          })
+        );
+
+        const items = response.data.data;
+        idsToDelete.push(...items.map((item: any) => item.id));
+
+        hasMore = items.length === 100;
+        page++;
+      }
+
+      // Delete in parallel batches
+      if (idsToDelete.length > 0) {
+        const deleteBatchSize = 50;
+        for (let i = 0; i < idsToDelete.length; i += deleteBatchSize) {
+          const batch = idsToDelete.slice(i, i + deleteBatchSize);
+          await Promise.all(
+            batch.map(id =>
+              this.retryWithBackoff(() =>
+                this.client.delete(`/api/${this.COLLECTION_NAME}/${id}`)
+              ).catch(() => {}) // Ignore delete errors
+            )
+          );
+        }
+        stats.deleted = idsToDelete.length;
+        console.log(`[${storeInfo.storeName}] Deleted ${idsToDelete.length} existing items`);
+      }
+
+      // Step 2: Filter items with quantity >= 5 and map data
+      const validItems = inventoryItems.filter(item => (item.quantityAvailable ?? 0) >= 5);
+      console.log(`[${storeInfo.storeName}] Creating ${validItems.length} items (filtered from ${inventoryItems.length})...`);
+
+      // Step 3: Create in parallel batches
+      const createBatchSize = 20; // Parallel requests per batch
+
+      for (let i = 0; i < validItems.length; i += createBatchSize) {
+        const batch = validItems.slice(i, i + createBatchSize);
+
+        const results = await Promise.all(
+          batch.map(async (item) => {
+            try {
+              const mappedData = this.mapInventoryData(item, storeInfo);
+              await this.retryWithBackoff(() =>
+                this.client.post(`/api/${this.COLLECTION_NAME}`, { data: mappedData })
+              );
+              return true;
+            } catch (error) {
+              return false;
+            }
+          })
+        );
+
+        stats.created += results.filter(r => r).length;
+        stats.errors += results.filter(r => !r).length;
+      }
+
+      console.log(`[${storeInfo.storeName}] Created ${stats.created} items${stats.errors > 0 ? `, ${stats.errors} errors` : ''}`);
+
+    } catch (error) {
+      console.error(`[${storeInfo.storeName}] Bulk replace error:`, error);
+      throw error;
+    }
+
+    return stats;
+  }
+
+  /**
+   * Map inventory data to Strapi format
+   */
+  private mapInventoryData(inventoryData: any, storeInfo: { dutchieStoreID: string }): StrapiInventory {
+    return {
+      inventoryId: String(inventoryData.inventoryId),
+      dutchieStoreID: storeInfo.dutchieStoreID,
+      productId: inventoryData.productId ? String(inventoryData.productId) : undefined,
+      sku: inventoryData.sku,
+      productName: inventoryData.productName,
+      description: inventoryData.description,
+      categoryId: inventoryData.categoryId ? String(inventoryData.categoryId) : undefined,
+      category: inventoryData.category,
+      imageUrl: inventoryData.imageUrl,
+      quantityAvailable: inventoryData.quantityAvailable,
+      quantityUnits: inventoryData.quantityUnits,
+      allocatedQuantity: inventoryData.allocatedQuantity,
+      unitWeight: inventoryData.unitWeight,
+      unitWeightUnit: inventoryData.unitWeightUnit,
+      unitCost: inventoryData.unitCost,
+      unitPrice: inventoryData.unitPrice,
+      medUnitPrice: inventoryData.medUnitPrice,
+      recUnitPrice: inventoryData.recUnitPrice,
+      flowerEquivalent: inventoryData.flowerEquivalent,
+      recFlowerEquivalent: inventoryData.recFlowerEquivalent,
+      flowerEquivalentUnits: inventoryData.flowerEquivalentUnits,
+      batchId: inventoryData.batchId ? String(inventoryData.batchId) : undefined,
+      batchName: inventoryData.batchName,
+      packageId: inventoryData.packageId,
+      packageStatus: inventoryData.packageStatus,
+      externalPackageId: inventoryData.externalPackageId,
+      packageNDC: inventoryData.packageNDC,
+      strainId: inventoryData.strainId ? String(inventoryData.strainId) : undefined,
+      strain: inventoryData.strain,
+      strainType: inventoryData.strainType,
+      size: inventoryData.size,
+      testedDate: inventoryData.testedDate,
+      sampleDate: inventoryData.sampleDate,
+      packagedDate: inventoryData.packagedDate,
+      manufacturingDate: inventoryData.manufacturingDate,
+      lastModifiedDateUtc: inventoryData.lastModifiedDateUtc,
+      expirationDate: inventoryData.expirationDate,
+      labTestStatus: inventoryData.labTestStatus,
+      labResultUrl: inventoryData.labResultUrl,
+      vendorId: inventoryData.vendorId ? String(inventoryData.vendorId) : undefined,
+      vendor: inventoryData.vendor,
+      pricingTierName: inventoryData.pricingTierName,
+      alternateName: inventoryData.alternateName,
+      brandId: inventoryData.brandId ? String(inventoryData.brandId) : undefined,
+      brandName: inventoryData.brandName,
+      medicalOnly: inventoryData.medicalOnly ?? false,
+      producer: inventoryData.producer,
+      producerId: inventoryData.producerId ? String(inventoryData.producerId) : undefined,
+      potencyIndicator: inventoryData.potencyIndicator,
+      masterCategory: inventoryData.masterCategory,
+      effectivePotencyMg: inventoryData.effectivePotencyMg,
+      isCannabis: inventoryData.isCannabis ?? true,
+    };
+  }
 }
 
 export default InventoryService;
