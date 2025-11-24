@@ -1,0 +1,124 @@
+{
+  "kind": "collectionType",
+  "collectionName": "discounts",
+  "info": {
+    "singularName": "discount",
+    "pluralName": "discounts",
+    "displayName": "Discount",
+    "description": "Dutchie discount sync data"
+  },
+  "options": {
+    "draftAndPublish": true
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "discountId": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "discountName": {
+      "type": "string"
+    },
+    "discountCode": {
+      "type": "string"
+    },
+    "discountAmount": {
+      "type": "decimal"
+    },
+    "discountType": {
+      "type": "string"
+    },
+    "discountMethod": {
+      "type": "string"
+    },
+    "applicationMethod": {
+      "type": "string"
+    },
+    "externalId": {
+      "type": "string"
+    },
+    "isActive": {
+      "type": "boolean",
+      "default": true
+    },
+    "isAvailableOnline": {
+      "type": "boolean",
+      "default": true
+    },
+    "isDeleted": {
+      "type": "boolean",
+      "default": false
+    },
+    "requireManagerApproval": {
+      "type": "boolean",
+      "default": false
+    },
+    "validFrom": {
+      "type": "datetime"
+    },
+    "validUntil": {
+      "type": "datetime"
+    },
+    "thresholdType": {
+      "type": "string"
+    },
+    "minimumItemsRequired": {
+      "type": "integer"
+    },
+    "maximumItemsAllowed": {
+      "type": "integer"
+    },
+    "maximumUsageCount": {
+      "type": "integer"
+    },
+    "includeNonCannabis": {
+      "type": "boolean",
+      "default": false
+    },
+    "firstTimeCustomerOnly": {
+      "type": "boolean",
+      "default": false
+    },
+    "stackOnOtherDiscounts": {
+      "type": "boolean",
+      "default": false
+    },
+    "appliesToLocations": {
+      "type": "json"
+    },
+    "weeklyRecurrenceInfo": {
+      "type": "json"
+    },
+    "products": {
+      "type": "json"
+    },
+    "productCategories": {
+      "type": "json"
+    },
+    "brands": {
+      "type": "json"
+    },
+    "vendors": {
+      "type": "json"
+    },
+    "strains": {
+      "type": "json"
+    },
+    "tiers": {
+      "type": "json"
+    },
+    "tags": {
+      "type": "json"
+    },
+    "inventoryTags": {
+      "type": "json"
+    },
+    "customerTypes": {
+      "type": "json"
+    },
+    "discountGroups": {
+      "type": "json"
+    }
+  }
+}

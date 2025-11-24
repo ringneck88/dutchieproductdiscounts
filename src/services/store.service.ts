@@ -41,10 +41,21 @@ class StoreService {
       );
 
       // Map stores - handle both Strapi v4 (attributes) and v5 (flat) structure
-      const allStores = response.data.data.map((item) => ({
-        id: item.id,
-        ...(item.attributes || item), // Use attributes if present, otherwise use item directly
-      }));
+      const allStores = response.data.data.map((item) => {
+        const attrs: any = item.attributes || item;
+        return {
+          id: item.id,
+          ...attrs,
+          // Normalize DutchieStoreID - handle different casing from Strapi
+          DutchieStoreID: attrs.DutchieStoreID || attrs.dutchieStoreID || attrs.dutchiestoreid,
+        };
+      });
+
+      // Debug: Log the first store to see actual field names
+      if (allStores.length > 0) {
+        console.log('DEBUG: First store raw data:', JSON.stringify(response.data.data[0], null, 2));
+        console.log('DEBUG: First mapped store:', JSON.stringify(allStores[0], null, 2));
+      }
 
       // Filter for active stores in code
       const stores = allStores.filter((store) => store.isActive === true || store.isActive === undefined);
@@ -73,10 +84,15 @@ class StoreService {
         }
       );
 
-      return response.data.data.map((item) => ({
-        id: item.id,
-        ...(item.attributes || item),
-      }));
+      return response.data.data.map((item) => {
+        const attrs: any = item.attributes || item;
+        return {
+          id: item.id,
+          ...attrs,
+          // Normalize DutchieStoreID - handle different casing from Strapi
+          DutchieStoreID: attrs.DutchieStoreID || attrs.dutchieStoreID || attrs.dutchiestoreid,
+        };
+      });
     } catch (error) {
       console.error('Error fetching all stores from Strapi:', error);
       throw new Error(`Failed to fetch all stores: ${error}`);
@@ -91,9 +107,12 @@ class StoreService {
       const response = await this.client.get(`/api/${this.COLLECTION_NAME}/${storeId}`);
 
       const item = response.data.data;
+      const attrs: any = item.attributes || item;
       return {
         id: item.id,
-        ...(item.attributes || item),
+        ...attrs,
+        // Normalize DutchieStoreID - handle different casing from Strapi
+        DutchieStoreID: attrs.DutchieStoreID || attrs.dutchieStoreID || attrs.dutchiestoreid,
       } as Store;
     } catch (error) {
       console.error(`Error fetching store ${storeId}:`, error);

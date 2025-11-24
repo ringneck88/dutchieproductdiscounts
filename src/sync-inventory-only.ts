@@ -65,6 +65,12 @@ async function syncInventoryOnly() {
           DutchieStoreID: store.DutchieStoreID,
         };
 
+        // Debug: Log store info to verify DutchieStoreID is populated
+        console.log('DEBUG Store object keys:', Object.keys(store));
+        console.log('DEBUG store.DutchieStoreID:', store.DutchieStoreID);
+        console.log('DEBUG store.dutchieStoreID:', (store as any).dutchieStoreID);
+        console.log('DEBUG storeInfo:', JSON.stringify(storeInfo, null, 2));
+
         // Sync each inventory item to Strapi
         console.log('Syncing inventory items to Strapi...');
         let syncedCount = 0;
