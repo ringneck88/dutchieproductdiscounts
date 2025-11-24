@@ -369,7 +369,7 @@ class InventoryService {
 
       // Delete in parallel batches
       if (idsToDelete.length > 0) {
-        const deleteBatchSize = 50;
+        const deleteBatchSize = 500;
         for (let i = 0; i < idsToDelete.length; i += deleteBatchSize) {
           const batch = idsToDelete.slice(i, i + deleteBatchSize);
           await Promise.all(
@@ -389,7 +389,7 @@ class InventoryService {
       console.log(`[${storeInfo.storeName}] Creating ${validItems.length} items (filtered from ${inventoryItems.length})...`);
 
       // Step 3: Create in parallel batches
-      const createBatchSize = 20; // Parallel requests per batch
+      const createBatchSize = 500;
 
       for (let i = 0; i < validItems.length; i += createBatchSize) {
         const batch = validItems.slice(i, i + createBatchSize);
