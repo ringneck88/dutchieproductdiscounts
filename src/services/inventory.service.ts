@@ -333,94 +333,92 @@ class InventoryService {
   }
 
   /**
-   * Bulk replace all inventory for a store
-   * Much faster than individual upserts - deletes all then bulk creates
+   * Bulk sync all inventory for a store
+   * Creates new items, updates existing ones (by inventoryId)
    */
   async bulkReplaceInventory(
     inventoryItems: any[],
     storeInfo: { storeId: number; storeName: string; dutchieStoreID: string }
   ): Promise<{ created: number; deleted: number; errors: number }> {
-    const stats = { created: 0, deleted: 0, errors: 0 };
+    const stats = { created: 0, deleted: 0, errors: 0, updated: 0 };
 
     try {
-      // Step 1: Delete all existing inventory for this store
-      console.log(`[${storeInfo.storeName}] Deleting existing inventory...`);
-      let page = 1;
-      let hasMore = true;
-      const idsToDelete: number[] = [];
-
-      while (hasMore) {
-        const response = await this.retryWithBackoff(() =>
-          this.client.get(`/api/${this.COLLECTION_NAME}`, {
-            params: {
-              filters: { dutchieStoreID: { $eq: storeInfo.dutchieStoreID } },
-              pagination: { page, pageSize: 100 },
-              fields: ['id']
-            }
-          })
-        );
-
-        const items = response.data.data;
-        idsToDelete.push(...items.map((item: any) => item.id));
-
-        hasMore = items.length === 100;
-        page++;
-      }
-
-      // Delete in parallel batches
-      if (idsToDelete.length > 0) {
-        const deleteBatchSize = 50; // Smaller batches to avoid overwhelming Strapi
-        let deletedSoFar = 0;
-        for (let i = 0; i < idsToDelete.length; i += deleteBatchSize) {
-          const batch = idsToDelete.slice(i, i + deleteBatchSize);
-          await Promise.all(
-            batch.map(id =>
-              this.retryWithBackoff(() =>
-                this.client.delete(`/api/${this.COLLECTION_NAME}/${id}`)
-              ).catch(() => {}) // Ignore delete errors
-            )
-          );
-          deletedSoFar += batch.length;
-          console.log(`[${storeInfo.storeName}] Deleting... ${deletedSoFar}/${idsToDelete.length}`);
-        }
-        stats.deleted = idsToDelete.length;
-      }
-
-      // Step 2: Filter items with quantity >= 5 and map data
+      // Filter items with quantity >= 5
       const validItems = inventoryItems.filter(item => (item.quantityAvailable ?? 0) >= 5);
-      console.log(`[${storeInfo.storeName}] Creating ${validItems.length} items (filtered ${inventoryItems.length - validItems.length} with qty < 5)...`);
+      console.log(`[${storeInfo.storeName}] Syncing ${validItems.length} items (filtered ${inventoryItems.length - validItems.length} with qty < 5)...`);
 
-      // Step 3: Create in parallel batches
-      const createBatchSize = 50; // Smaller batches to avoid overwhelming Strapi
+      // Process in parallel batches - create or update
+      const batchSize = 50;
 
-      for (let i = 0; i < validItems.length; i += createBatchSize) {
-        const batch = validItems.slice(i, i + createBatchSize);
+      for (let i = 0; i < validItems.length; i += batchSize) {
+        const batch = validItems.slice(i, i + batchSize);
 
         const results = await Promise.all(
           batch.map(async (item) => {
             try {
               const mappedData = this.mapInventoryData(item, storeInfo);
-              await this.retryWithBackoff(() =>
-                this.client.post(`/api/${this.COLLECTION_NAME}`, { data: mappedData })
-              );
-              return true;
-            } catch (error: any) {
-              // Log first error to help debug
-              if (stats.errors === 0) {
-                console.error(`[${storeInfo.storeName}] First error:`, error.response?.data || error.message);
+
+              // Try to create first
+              try {
+                await this.retryWithBackoff(() =>
+                  this.client.post(`/api/${this.COLLECTION_NAME}`, { data: mappedData })
+                );
+                return 'created';
+              } catch (createError: any) {
+                // If unique constraint, find and update
+                if (createError.response?.status === 400 &&
+                    createError.response?.data?.error?.message?.includes('unique')) {
+
+                  const existing = await this.findInventoryByDutchieId(item.inventoryId);
+                  if (existing) {
+                    await this.retryWithBackoff(() =>
+                      this.client.put(`/api/${this.COLLECTION_NAME}/${existing.id}`, { data: mappedData })
+                    );
+                    return 'updated';
+                  }
+                }
+                throw createError;
               }
-              return false;
+            } catch (error: any) {
+              return 'error';
             }
           })
         );
 
-        stats.created += results.filter(r => r).length;
-        stats.errors += results.filter(r => !r).length;
-        console.log(`[${storeInfo.storeName}] Creating... ${stats.created}/${validItems.length}${stats.errors > 0 ? ` (${stats.errors} errors)` : ''}`);
+        stats.created += results.filter(r => r === 'created').length;
+        stats.updated += results.filter(r => r === 'updated').length;
+        stats.errors += results.filter(r => r === 'error').length;
+
+        const progress = i + batch.length;
+        console.log(`[${storeInfo.storeName}] Progress: ${progress}/${validItems.length} (${stats.created} new, ${stats.updated} updated${stats.errors > 0 ? `, ${stats.errors} errors` : ''})`);
+      }
+
+      // Delete items with qty < 5 that exist in Strapi
+      const lowQtyItems = inventoryItems.filter(item => (item.quantityAvailable ?? 0) < 5);
+      if (lowQtyItems.length > 0) {
+        console.log(`[${storeInfo.storeName}] Removing ${lowQtyItems.length} low quantity items...`);
+
+        for (let i = 0; i < lowQtyItems.length; i += batchSize) {
+          const batch = lowQtyItems.slice(i, i + batchSize);
+
+          await Promise.all(
+            batch.map(async (item) => {
+              try {
+                const existing = await this.findInventoryByDutchieId(item.inventoryId);
+                if (existing) {
+                  await this.client.delete(`/api/${this.COLLECTION_NAME}/${existing.id}`);
+                  stats.deleted++;
+                }
+              } catch (e) {
+                // Ignore delete errors
+              }
+            })
+          );
+        }
       }
 
     } catch (error) {
-      console.error(`[${storeInfo.storeName}] Bulk replace error:`, error);
+      console.error(`[${storeInfo.storeName}] Bulk sync error:`, error);
       throw error;
     }
 
