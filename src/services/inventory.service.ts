@@ -353,6 +353,7 @@ class InventoryService {
       for (let i = 0; i < validItems.length; i += batchSize) {
         const batch = validItems.slice(i, i + batchSize);
 
+        let firstError: any = null;
         const results = await Promise.all(
           batch.map(async (item) => {
             try {
@@ -380,10 +381,17 @@ class InventoryService {
                 throw createError;
               }
             } catch (error: any) {
+              if (!firstError) {
+                firstError = error.response?.data || error.message;
+              }
               return 'error';
             }
           })
         );
+
+        if (firstError && stats.errors === 0) {
+          console.error(`[${storeInfo.storeName}] First error:`, JSON.stringify(firstError, null, 2));
+        }
 
         stats.created += results.filter(r => r === 'created').length;
         stats.updated += results.filter(r => r === 'updated').length;
