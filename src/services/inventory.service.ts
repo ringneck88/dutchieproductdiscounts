@@ -370,6 +370,7 @@ class InventoryService {
       // Delete in parallel batches
       if (idsToDelete.length > 0) {
         const deleteBatchSize = 500;
+        let deletedSoFar = 0;
         for (let i = 0; i < idsToDelete.length; i += deleteBatchSize) {
           const batch = idsToDelete.slice(i, i + deleteBatchSize);
           await Promise.all(
@@ -379,14 +380,15 @@ class InventoryService {
               ).catch(() => {}) // Ignore delete errors
             )
           );
+          deletedSoFar += batch.length;
+          console.log(`[${storeInfo.storeName}] Deleting... ${deletedSoFar}/${idsToDelete.length}`);
         }
         stats.deleted = idsToDelete.length;
-        console.log(`[${storeInfo.storeName}] Deleted ${idsToDelete.length} existing items`);
       }
 
       // Step 2: Filter items with quantity >= 5 and map data
       const validItems = inventoryItems.filter(item => (item.quantityAvailable ?? 0) >= 5);
-      console.log(`[${storeInfo.storeName}] Creating ${validItems.length} items (filtered from ${inventoryItems.length})...`);
+      console.log(`[${storeInfo.storeName}] Creating ${validItems.length} items (filtered ${inventoryItems.length - validItems.length} with qty < 5)...`);
 
       // Step 3: Create in parallel batches
       const createBatchSize = 500;
@@ -410,9 +412,8 @@ class InventoryService {
 
         stats.created += results.filter(r => r).length;
         stats.errors += results.filter(r => !r).length;
+        console.log(`[${storeInfo.storeName}] Creating... ${stats.created}/${validItems.length}${stats.errors > 0 ? ` (${stats.errors} errors)` : ''}`);
       }
-
-      console.log(`[${storeInfo.storeName}] Created ${stats.created} items${stats.errors > 0 ? `, ${stats.errors} errors` : ''}`);
 
     } catch (error) {
       console.error(`[${storeInfo.storeName}] Bulk replace error:`, error);
