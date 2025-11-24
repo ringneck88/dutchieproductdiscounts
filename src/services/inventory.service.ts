@@ -359,26 +359,32 @@ class InventoryService {
             try {
               const mappedData = this.mapInventoryData(item, storeInfo);
 
-              // Try to create first
-              try {
+              // Try to find existing first, then create or update
+              const existing = await this.findInventoryByDutchieId(item.inventoryId);
+
+              if (existing) {
+                // Update existing
+                try {
+                  await this.retryWithBackoff(() =>
+                    this.client.put(`/api/${this.COLLECTION_NAME}/${existing.id}`, { data: mappedData })
+                  );
+                  return 'updated';
+                } catch (updateError: any) {
+                  // If 404, item was deleted - try to create
+                  if (updateError.response?.status === 404) {
+                    await this.retryWithBackoff(() =>
+                      this.client.post(`/api/${this.COLLECTION_NAME}`, { data: mappedData })
+                    );
+                    return 'created';
+                  }
+                  throw updateError;
+                }
+              } else {
+                // Create new
                 await this.retryWithBackoff(() =>
                   this.client.post(`/api/${this.COLLECTION_NAME}`, { data: mappedData })
                 );
                 return 'created';
-              } catch (createError: any) {
-                // If unique constraint, find and update
-                if (createError.response?.status === 400 &&
-                    createError.response?.data?.error?.message?.includes('unique')) {
-
-                  const existing = await this.findInventoryByDutchieId(item.inventoryId);
-                  if (existing) {
-                    await this.retryWithBackoff(() =>
-                      this.client.put(`/api/${this.COLLECTION_NAME}/${existing.id}`, { data: mappedData })
-                    );
-                    return 'updated';
-                  }
-                }
-                throw createError;
               }
             } catch (error: any) {
               if (!firstError) {
