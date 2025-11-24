@@ -122,7 +122,7 @@ class DiscountService {
         includeNonCannabis: discountData.includeNonCannabis ?? false,
         firstTimeCustomerOnly: discountData.firstTimeCustomerOnly ?? false,
         stackOnOtherDiscounts: discountData.stackOnOtherDiscounts ?? false,
-        appliesToLocations: discountData.appliesToLocations,
+        appliesToLocations: storeInfo.DutchieStoreID,
         weeklyRecurrenceInfo: discountData.weeklyRecurrenceInfo,
         products: discountData.products,
         productCategories: discountData.productCategories,
