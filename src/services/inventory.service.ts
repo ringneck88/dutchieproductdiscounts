@@ -451,9 +451,24 @@ class InventoryService {
 
       console.log(`[${storeInfo.storeName}] Found ${existingMap.size} items for this store (${allItemsMap.size} total in Strapi)`);
 
+      // Debug: Log sample of what's in the maps
+      if (allItemsMap.size > 0) {
+        const sampleKeys = Array.from(allItemsMap.keys()).slice(0, 3);
+        console.log(`[${storeInfo.storeName}] Sample Strapi inventoryIds: ${sampleKeys.join(', ')}`);
+      }
+
       // Step 2: Filter items with quantity >= 5
       const validItems = inventoryItems.filter(item => (item.quantityAvailable ?? 0) >= 5);
       console.log(`[${storeInfo.storeName}] Syncing ${validItems.length} items (filtered ${inventoryItems.length - validItems.length} with qty < 5)...`);
+
+      // Debug: Log sample Dutchie inventoryIds
+      if (validItems.length > 0) {
+        const sampleDutchieIds = validItems.slice(0, 3).map(i => String(i.inventoryId));
+        console.log(`[${storeInfo.storeName}] Sample Dutchie inventoryIds: ${sampleDutchieIds.join(', ')}`);
+        // Check if any match
+        const matchCount = validItems.filter(i => allItemsMap.has(String(i.inventoryId))).length;
+        console.log(`[${storeInfo.storeName}] Items found in allItemsMap: ${matchCount}/${validItems.length}`);
+      }
 
       // Build set of valid inventoryIds we're syncing
       const validInventoryIds = new Set(validItems.map(item => String(item.inventoryId)));
@@ -482,6 +497,7 @@ class InventoryService {
       }
 
       // Step 4: Create or update items
+      // Simple approach: update if in existingMap, otherwise create (handle unique constraint)
       let createdCount = 0;
       let updatedCount = 0;
       for (let i = 0; i < validItems.length; i += batchSize) {
@@ -497,39 +513,41 @@ class InventoryService {
               // Check if exists in THIS store's items
               const existingStrapiId = existingMap.get(invId);
 
-              // Also check if exists in ANY store (for unique constraint)
-              const anyExistingId = allItemsMap.get(invId);
-
               if (existingStrapiId) {
                 // Update existing item for this store
                 await this.retryWithBackoff(() =>
                   this.client.put(`/api/${this.COLLECTION_NAME}/${existingStrapiId}`, { data: mappedData })
                 );
                 return 'updated';
-              } else if (anyExistingId) {
-                // Item exists in another store - update it to claim it for this store
-                await this.retryWithBackoff(() =>
-                  this.client.put(`/api/${this.COLLECTION_NAME}/${anyExistingId}`, { data: mappedData })
-                );
-                return 'updated';
               } else {
-                // Create new
+                // Try to create new
                 try {
                   await this.retryWithBackoff(() =>
                     this.client.post(`/api/${this.COLLECTION_NAME}`, { data: mappedData })
                   );
                   return 'created';
                 } catch (createError: any) {
-                  // Handle unique constraint - item was created by parallel process
+                  // Handle unique constraint - item exists but not assigned to this store
                   if (createError.response?.status === 400 &&
                       createError.response?.data?.error?.message?.includes('unique')) {
-                    // Fetch the item directly and update it
-                    const found = await this.findInventoryByDutchieId(item.inventoryId);
-                    if (found) {
-                      await this.retryWithBackoff(() =>
-                        this.client.put(`/api/${this.COLLECTION_NAME}/${found.id}`, { data: mappedData })
-                      );
-                      return 'updated';
+                    // Look up in allItemsMap first (faster than API call)
+                    const existingId = allItemsMap.get(invId);
+                    if (existingId) {
+                      try {
+                        await this.retryWithBackoff(() =>
+                          this.client.put(`/api/${this.COLLECTION_NAME}/${existingId}`, { data: mappedData })
+                        );
+                        return 'updated';
+                      } catch (updateErr: any) {
+                        // If 404, item was deleted - try create again
+                        if (updateErr.response?.status === 404) {
+                          await this.retryWithBackoff(() =>
+                            this.client.post(`/api/${this.COLLECTION_NAME}`, { data: mappedData })
+                          );
+                          return 'created';
+                        }
+                        throw updateErr;
+                      }
                     }
                   }
                   throw createError;
