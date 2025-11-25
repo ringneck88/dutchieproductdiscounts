@@ -36,63 +36,60 @@ async function syncAll() {
     let totalInventorySynced = 0;
     let totalDiscountsSynced = 0;
 
-    // Sync all stores in parallel
-    const storeResults = await Promise.all(
-      stores.map(async (store) => {
-        const result = { storeName: store.name, invSynced: 0, discSynced: 0, invErrors: 0, discErrors: 0 };
+    // Sync stores SEQUENTIALLY to avoid race conditions on shared inventory
+    const storeResults: { storeName: string; invSynced: number; discSynced: number; invErrors: number; discErrors: number }[] = [];
 
-        console.log(`\n🚀 Starting sync for: ${store.name} (ID: ${store.dutchieStoreID})`);
+    for (const store of stores) {
+      const result = { storeName: store.name, invSynced: 0, discSynced: 0, invErrors: 0, discErrors: 0 };
 
-        try {
-          // Initialize services for this store
-          const dutchieService = new DutchieService({
-            apiKey: store.dutchieApiKey,
-            retailerId: store.dutchieStoreID,
-          });
+      console.log(`\n🚀 Starting sync for: ${store.name} (ID: ${store.dutchieStoreID})`);
 
-          const inventoryService = new InventoryService();
-          const discountService = new DiscountService();
+      try {
+        // Initialize services for this store
+        const dutchieService = new DutchieService({
+          apiKey: store.dutchieApiKey,
+          retailerId: store.dutchieStoreID,
+        });
 
-          const storeInfo = {
-            storeId: store.id!,
-            storeName: store.name,
-            dutchieStoreID: store.dutchieStoreID,
-          };
+        const inventoryService = new InventoryService();
+        const discountService = new DiscountService();
 
-          // Fetch inventory and discounts in parallel
-          const [inventoryItems, discounts] = await Promise.all([
-            dutchieService.getReportingInventory(),
-            dutchieService.getReportingDiscounts(),
-          ]);
+        const storeInfo = {
+          storeId: store.id!,
+          storeName: store.name,
+          dutchieStoreID: store.dutchieStoreID,
+        };
 
-          console.log(`[${store.name}] Fetched ${inventoryItems.length} inventory, ${discounts.length} discounts`);
+        // Fetch inventory and discounts in parallel (safe - just reading from Dutchie)
+        const [inventoryItems, discounts] = await Promise.all([
+          dutchieService.getReportingInventory(),
+          dutchieService.getReportingDiscounts(),
+        ]);
 
-          // Sync inventory and discounts in parallel (both use bulk replace)
-          const [invResult, discResult] = await Promise.all([
-            // Bulk replace inventory (much faster)
-            inventoryService.bulkReplaceInventory(inventoryItems, storeInfo)
-              .then(r => ({ synced: r.created, errors: r.errors }))
-              .catch(() => ({ synced: 0, errors: 1 })),
-            // Bulk replace discounts (much faster)
-            discountService.bulkReplaceDiscounts(discounts, storeInfo)
-              .then(r => ({ synced: r.created, errors: r.errors }))
-              .catch(() => ({ synced: 0, errors: 1 })),
-          ]);
+        console.log(`[${store.name}] Fetched ${inventoryItems.length} inventory, ${discounts.length} discounts`);
 
-          result.invSynced = invResult.synced;
-          result.invErrors = invResult.errors;
-          result.discSynced = discResult.synced;
-          result.discErrors = discResult.errors;
+        // Sync inventory first, then discounts (sequential to avoid Strapi conflicts)
+        const invResult = await inventoryService.bulkReplaceInventory(inventoryItems, storeInfo)
+          .then(r => ({ synced: r.created, errors: r.errors }))
+          .catch(() => ({ synced: 0, errors: 1 }));
 
-          console.log(`✅ [${store.name}] Complete: ${result.invSynced} inventory, ${result.discSynced} discounts`);
+        const discResult = await discountService.bulkReplaceDiscounts(discounts, storeInfo)
+          .then(r => ({ synced: r.created, errors: r.errors }))
+          .catch(() => ({ synced: 0, errors: 1 }));
 
-        } catch (storeError) {
-          console.error(`❌ Error syncing store "${store.name}":`, storeError);
-        }
+        result.invSynced = invResult.synced;
+        result.invErrors = invResult.errors;
+        result.discSynced = discResult.synced;
+        result.discErrors = discResult.errors;
 
-        return result;
-      })
-    );
+        console.log(`✅ [${store.name}] Complete: ${result.invSynced} inventory, ${result.discSynced} discounts`);
+
+      } catch (storeError) {
+        console.error(`❌ Error syncing store "${store.name}":`, storeError);
+      }
+
+      storeResults.push(result);
+    }
 
     // Aggregate results
     for (const result of storeResults) {

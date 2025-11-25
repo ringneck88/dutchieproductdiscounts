@@ -29,51 +29,52 @@ async function syncInventoryOnly() {
 
     console.log(`Found ${stores.length} valid store(s) to sync\n`);
 
-    // Sync all stores in parallel using bulk replace (much faster)
-    const storeResults = await Promise.all(
-      stores.map(async (store) => {
-        console.log(`🚀 Starting inventory sync for: ${store.name} (ID: ${store.dutchieStoreID})`);
+    // Sync stores SEQUENTIALLY to avoid race conditions
+    const storeResults: { storeName: string; synced: number; errors: number }[] = [];
 
-        try {
-          // Initialize Dutchie service for this store
-          const dutchieService = new DutchieService({
-            apiKey: store.dutchieApiKey,
-            retailerId: store.dutchieStoreID,
-          });
+    for (const store of stores) {
+      console.log(`\n🚀 Starting inventory sync for: ${store.name} (ID: ${store.dutchieStoreID})`);
 
-          // Initialize Inventory service
-          const inventoryService = new InventoryService();
+      try {
+        // Initialize Dutchie service for this store
+        const dutchieService = new DutchieService({
+          apiKey: store.dutchieApiKey,
+          retailerId: store.dutchieStoreID,
+        });
 
-          // Fetch inventory from Dutchie
-          const inventoryItems = await dutchieService.getReportingInventory();
+        // Initialize Inventory service
+        const inventoryService = new InventoryService();
 
-          if (inventoryItems.length === 0) {
-            console.log(`[${store.name}] No inventory items found`);
-            return { storeName: store.name, synced: 0, errors: 0 };
-          }
+        // Fetch inventory from Dutchie
+        const inventoryItems = await dutchieService.getReportingInventory();
 
-          console.log(`[${store.name}] Fetched ${inventoryItems.length} inventory items`);
-
-          // Store info to associate with inventory items
-          const storeInfo = {
-            storeId: store.id!,
-            storeName: store.name,
-            dutchieStoreID: store.dutchieStoreID,
-          };
-
-          // Bulk replace - delete all then create (much faster than upsert)
-          const result = await inventoryService.bulkReplaceInventory(inventoryItems, storeInfo);
-
-          console.log(`✅ [${store.name}] Complete: ${result.created} created, ${result.deleted} deleted${result.errors > 0 ? `, ${result.errors} errors` : ''}`);
-
-          return { storeName: store.name, synced: result.created, errors: result.errors };
-
-        } catch (storeError) {
-          console.error(`❌ Error syncing store "${store.name}":`, storeError);
-          return { storeName: store.name, synced: 0, errors: 1 };
+        if (inventoryItems.length === 0) {
+          console.log(`[${store.name}] No inventory items found`);
+          storeResults.push({ storeName: store.name, synced: 0, errors: 0 });
+          continue;
         }
-      })
-    );
+
+        console.log(`[${store.name}] Fetched ${inventoryItems.length} inventory items`);
+
+        // Store info to associate with inventory items
+        const storeInfo = {
+          storeId: store.id!,
+          storeName: store.name,
+          dutchieStoreID: store.dutchieStoreID,
+        };
+
+        // Bulk replace inventory
+        const result = await inventoryService.bulkReplaceInventory(inventoryItems, storeInfo);
+
+        console.log(`✅ [${store.name}] Complete: ${result.created} created, ${result.deleted} deleted${result.errors > 0 ? `, ${result.errors} errors` : ''}`);
+
+        storeResults.push({ storeName: store.name, synced: result.created, errors: result.errors });
+
+      } catch (storeError) {
+        console.error(`❌ Error syncing store "${store.name}":`, storeError);
+        storeResults.push({ storeName: store.name, synced: 0, errors: 1 });
+      }
+    }
 
     // Aggregate results
     const totalInventorySynced = storeResults.reduce((sum, r) => sum + r.synced, 0);

@@ -439,8 +439,8 @@ class InventoryService {
           // Track all items for unique constraint handling
           allItemsMap.set(invId, item.id);
 
-          // Only include in existingMap if belongs to THIS store or has no store set
-          if (itemStoreId === storeInfo.dutchieStoreID || !itemStoreId) {
+          // Only include in existingMap if EXPLICITLY belongs to THIS store
+          if (itemStoreId === storeInfo.dutchieStoreID) {
             existingMap.set(invId, item.id);
           }
         }
@@ -514,10 +514,26 @@ class InventoryService {
                 return 'updated';
               } else {
                 // Create new
-                await this.retryWithBackoff(() =>
-                  this.client.post(`/api/${this.COLLECTION_NAME}`, { data: mappedData })
-                );
-                return 'created';
+                try {
+                  await this.retryWithBackoff(() =>
+                    this.client.post(`/api/${this.COLLECTION_NAME}`, { data: mappedData })
+                  );
+                  return 'created';
+                } catch (createError: any) {
+                  // Handle unique constraint - item was created by parallel process
+                  if (createError.response?.status === 400 &&
+                      createError.response?.data?.error?.message?.includes('unique')) {
+                    // Fetch the item directly and update it
+                    const found = await this.findInventoryByDutchieId(item.inventoryId);
+                    if (found) {
+                      await this.retryWithBackoff(() =>
+                        this.client.put(`/api/${this.COLLECTION_NAME}/${found.id}`, { data: mappedData })
+                      );
+                      return 'updated';
+                    }
+                  }
+                  throw createError;
+                }
               }
             } catch (error: any) {
               if (!firstError) {
