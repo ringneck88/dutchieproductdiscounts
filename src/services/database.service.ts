@@ -207,8 +207,7 @@ class DatabaseService {
 
   /**
    * Bulk sync discounts directly to PostgreSQL
-   * Simple approach: DELETE ALL discounts, then INSERT fresh
-   * Note: The deployed Strapi schema may not have all columns - we only use columns that exist
+   * Dynamically builds INSERT based on columns that actually exist in the database
    */
   async bulkUpsertDiscounts(
     discounts: any[],
@@ -234,9 +233,51 @@ class DatabaseService {
 
     console.log(`[${storeInfo.storeName}] Processing ${activeDiscounts.length} discounts (filtered ${discounts.length - activeDiscounts.length} inactive/expired)...`);
 
-    // Debug: Print actual column names
-    const columns = await this.getTableColumns('discounts');
-    console.log(`[${storeInfo.storeName}] Discount table columns:`, columns.join(', '));
+    // Get actual column names from database
+    const dbColumns = new Set(await this.getTableColumns('discounts'));
+    console.log(`[${storeInfo.storeName}] Discount table columns:`, Array.from(dbColumns).join(', '));
+
+    // Define all possible column mappings (db_column -> getter function)
+    const allColumnMappings: { col: string; getValue: (d: any) => any }[] = [
+      { col: 'discount_id', getValue: (d) => String(d.discountId) },
+      { col: 'discount_name', getValue: (d) => d.discountName || null },
+      { col: 'discount_code', getValue: (d) => d.discountCode || null },
+      { col: 'discount_amount', getValue: (d) => d.discountAmount ?? null },
+      { col: 'discount_type', getValue: (d) => d.discountType || null },
+      { col: 'discount_method', getValue: (d) => d.discountMethod || null },
+      { col: 'application_method', getValue: (d) => d.applicationMethod || null },
+      { col: 'external_id', getValue: (d) => d.externalId || null },
+      { col: 'is_active', getValue: (d) => d.isActive ?? true },
+      { col: 'is_available_online', getValue: (d) => d.isAvailableOnline ?? true },
+      { col: 'is_deleted', getValue: (d) => d.isDeleted ?? false },
+      { col: 'require_manager_approval', getValue: (d) => d.requireManagerApproval ?? false },
+      { col: 'valid_from', getValue: (d) => d.validFrom || null },
+      { col: 'valid_until', getValue: (d) => d.validUntil || null },
+      { col: 'threshold_type', getValue: (d) => d.thresholdType || null },
+      { col: 'minimum_items_required', getValue: (d) => d.minimumItemsRequired ?? null },
+      { col: 'maximum_items_allowed', getValue: (d) => d.maximumItemsAllowed ?? null },
+      { col: 'maximum_usage_count', getValue: (d) => d.maximumUsageCount ?? null },
+      { col: 'include_non_cannabis', getValue: (d) => d.includeNonCannabis ?? false },
+      { col: 'first_time_customer_only', getValue: (d) => d.firstTimeCustomerOnly ?? false },
+      { col: 'stack_on_other_discounts', getValue: (d) => d.stackOnOtherDiscounts ?? false },
+      { col: 'applies_to_locations', getValue: (d) => JSON.stringify([{ locationName: storeInfo.storeName, dutchieStoreID: storeInfo.dutchieStoreID }]) },
+      { col: 'weekly_recurrence_info', getValue: (d) => d.weeklyRecurrenceInfo ? JSON.stringify(d.weeklyRecurrenceInfo) : null },
+      { col: 'products', getValue: (d) => d.products ? JSON.stringify(d.products) : null },
+      { col: 'product_categories', getValue: (d) => d.productCategories ? JSON.stringify(d.productCategories) : null },
+      { col: 'brands', getValue: (d) => d.brands ? JSON.stringify(d.brands) : null },
+      { col: 'vendors', getValue: (d) => d.vendors ? JSON.stringify(d.vendors) : null },
+      { col: 'strains', getValue: (d) => d.strains ? JSON.stringify(d.strains) : null },
+      { col: 'tiers', getValue: (d) => d.tiers ? JSON.stringify(d.tiers) : null },
+      { col: 'tags', getValue: (d) => d.tags ? JSON.stringify(d.tags) : null },
+      { col: 'inventory_tags', getValue: (d) => d.inventoryTags ? JSON.stringify(d.inventoryTags) : null },
+      { col: 'customer_types', getValue: (d) => d.customerTypes ? JSON.stringify(d.customerTypes) : null },
+      { col: 'discount_groups', getValue: (d) => d.discountGroups ? JSON.stringify(d.discountGroups) : null },
+      { col: 'updated_at', getValue: () => new Date() },
+    ];
+
+    // Filter to only columns that exist in the database
+    const columnMappings = allColumnMappings.filter(m => dbColumns.has(m.col));
+    console.log(`[${storeInfo.storeName}] Using ${columnMappings.length} columns for INSERT`);
 
     const client = await this.pool.connect();
 
@@ -255,8 +296,8 @@ class DatabaseService {
       }
 
       // Step 2: INSERT all fresh discounts in batches
-      // Using only columns that exist in the deployed schema
       const batchSize = 100;
+      const columnNames = columnMappings.map(m => m.col).join(', ');
 
       for (let i = 0; i < activeDiscounts.length; i += batchSize) {
         const batch = activeDiscounts.slice(i, i + batchSize);
@@ -266,60 +307,16 @@ class DatabaseService {
         let paramIndex = 1;
 
         for (const discount of batch) {
-          const row = [
-            String(discount.discountId),
-            discount.discountName || null,
-            discount.discountCode || null,
-            discount.discountAmount ?? null,
-            discount.discountType || null,
-            discount.discountMethod || null,
-            discount.applicationMethod || null,
-            discount.externalId || null,
-            discount.isActive ?? true,
-            discount.isAvailableOnline ?? true,
-            discount.isDeleted ?? false,
-            discount.requireManagerApproval ?? false,
-            discount.validFrom || null,
-            discount.validUntil || null,
-            discount.thresholdType || null,
-            discount.minimumItemsRequired ?? null,
-            discount.maximumItemsAllowed ?? null,
-            discount.maximumUsageCount ?? null,
-            discount.includeNonCannabis ?? false,
-            discount.firstTimeCustomerOnly ?? false,
-            discount.stackOnOtherDiscounts ?? false,
-            discount.weeklyRecurrenceInfo ? JSON.stringify(discount.weeklyRecurrenceInfo) : null,
-            discount.products ? JSON.stringify(discount.products) : null,
-            discount.productCategories ? JSON.stringify(discount.productCategories) : null,
-            discount.brands ? JSON.stringify(discount.brands) : null,
-            discount.vendors ? JSON.stringify(discount.vendors) : null,
-            discount.strains ? JSON.stringify(discount.strains) : null,
-            discount.tiers ? JSON.stringify(discount.tiers) : null,
-            discount.tags ? JSON.stringify(discount.tags) : null,
-            discount.inventoryTags ? JSON.stringify(discount.inventoryTags) : null,
-            discount.customerTypes ? JSON.stringify(discount.customerTypes) : null,
-            discount.discountGroups ? JSON.stringify(discount.discountGroups) : null,
-            new Date(), // updated_at
-          ];
-
+          const row = columnMappings.map(m => m.getValue(discount));
           values.push(...row);
           const placeholders = row.map((_, idx) => `$${paramIndex + idx}`).join(', ');
           valuePlaceholders.push(`(${placeholders})`);
           paramIndex += row.length;
         }
 
-        // Simple INSERT - using only columns that exist in the deployed Strapi schema
-        // Note: applies_to_locations column removed as it may not exist in deployed DB
         const insertQuery = `
-          INSERT INTO discounts (
-            discount_id, discount_name, discount_code, discount_amount, discount_type,
-            discount_method, application_method, external_id, is_active, is_available_online,
-            is_deleted, require_manager_approval, valid_from, valid_until, threshold_type,
-            minimum_items_required, maximum_items_allowed, maximum_usage_count, include_non_cannabis,
-            first_time_customer_only, stack_on_other_discounts, weekly_recurrence_info,
-            products, product_categories, brands, vendors, strains, tiers, tags,
-            inventory_tags, customer_types, discount_groups, updated_at
-          ) VALUES ${valuePlaceholders.join(', ')}
+          INSERT INTO discounts (${columnNames})
+          VALUES ${valuePlaceholders.join(', ')}
         `;
 
         try {
