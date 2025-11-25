@@ -188,6 +188,24 @@ class DatabaseService {
   }
 
   /**
+   * Debug: Get actual column names from a table
+   */
+  async getTableColumns(tableName: string): Promise<string[]> {
+    if (!this.pool) {
+      throw new Error('Database not connected');
+    }
+
+    const result = await this.pool.query(`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = $1
+      ORDER BY ordinal_position
+    `, [tableName]);
+
+    return result.rows.map(row => row.column_name);
+  }
+
+  /**
    * Bulk sync discounts directly to PostgreSQL
    * Simple approach: DELETE ALL discounts, then INSERT fresh
    * Note: The deployed Strapi schema may not have all columns - we only use columns that exist
@@ -216,12 +234,16 @@ class DatabaseService {
 
     console.log(`[${storeInfo.storeName}] Processing ${activeDiscounts.length} discounts (filtered ${discounts.length - activeDiscounts.length} inactive/expired)...`);
 
+    // Debug: Print actual column names
+    const columns = await this.getTableColumns('discounts');
+    console.log(`[${storeInfo.storeName}] Discount table columns:`, columns.join(', '));
+
     const client = await this.pool.connect();
 
     try {
       await client.query('BEGIN');
 
-      // Step 1: DELETE ALL discounts (simple approach since appliesToLocations column may not exist)
+      // Step 1: DELETE ALL discounts
       const deleteResult = await client.query(`DELETE FROM discounts`);
 
       stats.deleted = deleteResult.rowCount || 0;
