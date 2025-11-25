@@ -4,6 +4,7 @@
  */
 
 import { Pool } from 'pg';
+import { randomUUID } from 'crypto';
 import config from '../config';
 
 class DatabaseService {
@@ -82,6 +83,7 @@ class DatabaseService {
 
         for (const item of batch) {
           const row = [
+            randomUUID(), // document_id - required for Strapi v5
             String(item.inventoryId),
             storeInfo.dutchieStoreID,
             item.productId ? String(item.productId) : null,
@@ -149,7 +151,7 @@ class DatabaseService {
         // Simple INSERT - Strapi uses snake_case column names
         const insertQuery = `
           INSERT INTO inventories (
-            inventory_id, dutchie_store_id, product_id, sku, product_name,
+            document_id, inventory_id, dutchie_store_id, product_id, sku, product_name,
             description, category_id, category, image_url, quantity_available,
             quantity_units, allocated_quantity, unit_weight, unit_weight_unit, unit_cost,
             unit_price, med_unit_price, rec_unit_price, flower_equivalent, rec_flower_equivalent,
@@ -241,6 +243,7 @@ class DatabaseService {
 
     // Define all possible column mappings (db_column -> getter function)
     const allColumnMappings: { col: string; getValue: (d: any) => any }[] = [
+      { col: 'document_id', getValue: () => randomUUID() }, // Required for Strapi v5
       { col: 'discount_id', getValue: (d) => String(d.discountId) },
       { col: 'discount_name', getValue: (d) => d.discountName || null },
       { col: 'discount_code', getValue: (d) => d.discountCode || null },
