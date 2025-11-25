@@ -18,17 +18,41 @@ async function syncAll() {
   const startTime = Date.now();
 
   try {
-    // Validate configuration
-    console.log('Validating configuration...');
-    validateConfig();
-    console.log('Configuration valid!\n');
+    // Check if direct database mode is enabled
+    const useDirectDb = config.database.enabled;
 
-    // Fetch valid stores from Strapi
-    console.log('Fetching stores from Strapi...');
-    const stores = await storeService.getValidStores();
+    let stores: Array<{
+      id?: number;
+      name: string;
+      dutchieStoreID: string;
+      dutchieApiKey: string;
+      location?: string;
+    }>;
+
+    if (useDirectDb) {
+      console.log('🚀 Using DIRECT DATABASE mode (PostgreSQL) - much faster!');
+      console.log(`   DATABASE_URL: ${config.database.url.substring(0, 30)}...\n`);
+      await databaseService.connect();
+
+      // Fetch stores directly from database (bypasses Strapi API)
+      console.log('Fetching stores from database...');
+      stores = await databaseService.getStores();
+    } else {
+      // Validate configuration (requires Strapi token)
+      console.log('Validating configuration...');
+      validateConfig();
+      console.log('Configuration valid!\n');
+
+      console.log('⚠️  Using Strapi API mode (SLOW)');
+      console.log('   Set DATABASE_URL environment variable for 100x faster sync!\n');
+
+      // Fetch stores from Strapi API
+      console.log('Fetching stores from Strapi...');
+      stores = await storeService.getValidStores();
+    }
 
     if (stores.length === 0) {
-      console.error('No valid stores found in Strapi. Please configure stores with Dutchie API credentials.');
+      console.error('No valid stores found. Please configure stores with Dutchie API credentials.');
       return;
     }
 
@@ -37,17 +61,6 @@ async function syncAll() {
     // Track totals
     let totalInventorySynced = 0;
     let totalDiscountsSynced = 0;
-
-    // Check if direct database mode is enabled
-    const useDirectDb = config.database.enabled;
-    if (useDirectDb) {
-      console.log('🚀 Using DIRECT DATABASE mode (PostgreSQL) - much faster!');
-      console.log(`   DATABASE_URL: ${config.database.url.substring(0, 30)}...\n`);
-      await databaseService.connect();
-    } else {
-      console.log('⚠️  Using Strapi API mode (SLOW)');
-      console.log('   Set DATABASE_URL environment variable for 100x faster sync!\n');
-    }
 
     // Sync stores SEQUENTIALLY to avoid race conditions
     const storeResults: { storeName: string; invSynced: number; discSynced: number; invErrors: number; discErrors: number }[] = [];

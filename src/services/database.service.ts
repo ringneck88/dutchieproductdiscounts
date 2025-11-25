@@ -359,6 +359,39 @@ class DatabaseService {
 
     return stats;
   }
+
+  /**
+   * Fetch stores directly from database (bypasses Strapi API)
+   * Returns stores with valid Dutchie credentials
+   */
+  async getStores(): Promise<Array<{
+    id: number;
+    name: string;
+    dutchieStoreID: string;
+    dutchieApiKey: string;
+    location?: string;
+  }>> {
+    if (!this.pool) {
+      throw new Error('Database not connected');
+    }
+
+    const result = await this.pool.query(`
+      SELECT
+        id,
+        name,
+        dutchie_store_id as "dutchieStoreID",
+        dutchie_api_key as "dutchieApiKey",
+        location
+      FROM stores
+      WHERE dutchie_store_id IS NOT NULL
+        AND dutchie_api_key IS NOT NULL
+        AND dutchie_api_key != ''
+      ORDER BY name
+    `);
+
+    console.log(`[Database] Found ${result.rows.length} stores with Dutchie credentials`);
+    return result.rows;
+  }
 }
 
 export default new DatabaseService();
