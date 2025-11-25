@@ -4,8 +4,13 @@
  */
 
 import { Pool } from 'pg';
-import { randomUUID } from 'crypto';
+import { randomBytes } from 'crypto';
 import config from '../config';
+
+// Generate Strapi v5 style document_id (24 char alphanumeric)
+function generateStrapiDocumentId(): string {
+  return randomBytes(12).toString('hex');
+}
 
 class DatabaseService {
   private pool: Pool | null = null;
@@ -83,7 +88,7 @@ class DatabaseService {
 
         for (const item of batch) {
           const row = [
-            randomUUID(), // document_id - required for Strapi v5
+            generateStrapiDocumentId(), // document_id - required for Strapi v5
             String(item.inventoryId),
             storeInfo.dutchieStoreID,
             item.productId ? String(item.productId) : null,
