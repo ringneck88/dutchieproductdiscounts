@@ -16,6 +16,10 @@ interface Config {
     apiUrl: string;
     apiToken: string;
   };
+  database: {
+    url: string;
+    enabled: boolean;
+  };
   redis: {
     url: string;
     enabled: boolean;
@@ -37,6 +41,10 @@ const config: Config = {
   strapi: {
     apiUrl: process.env.STRAPI_API_URL || 'http://localhost:1337',
     apiToken: process.env.STRAPI_API_TOKEN || '',
+  },
+  database: {
+    url: process.env.DATABASE_URL || '',
+    enabled: !!process.env.DATABASE_URL, // Enabled if DATABASE_URL is set
   },
   redis: {
     url: process.env.REDIS_URL || 'redis://localhost:6379',

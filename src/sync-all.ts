@@ -1,12 +1,14 @@
 /**
  * Combined Sync Script
  * Syncs both inventory and discounts from Dutchie to Strapi
+ * Uses direct PostgreSQL when DATABASE_URL is configured (much faster)
  */
 
 import config, { validateConfig } from './config';
 import DutchieService from './services/dutchie.service';
 import InventoryService from './services/inventory.service';
 import DiscountService from './services/discount.service';
+import databaseService from './services/database.service';
 import storeService from './services/store.service';
 
 async function syncAll() {
@@ -36,59 +38,85 @@ async function syncAll() {
     let totalInventorySynced = 0;
     let totalDiscountsSynced = 0;
 
-    // Sync stores SEQUENTIALLY to avoid race conditions on shared inventory
+    // Check if direct database mode is enabled
+    const useDirectDb = config.database.enabled;
+    if (useDirectDb) {
+      console.log('🚀 Using DIRECT DATABASE mode (PostgreSQL) - much faster!\n');
+      await databaseService.connect();
+    } else {
+      console.log('Using Strapi API mode (set DATABASE_URL for faster sync)\n');
+    }
+
+    // Sync stores SEQUENTIALLY to avoid race conditions
     const storeResults: { storeName: string; invSynced: number; discSynced: number; invErrors: number; discErrors: number }[] = [];
 
-    for (const store of stores) {
-      const result = { storeName: store.name, invSynced: 0, discSynced: 0, invErrors: 0, discErrors: 0 };
+    try {
+      for (const store of stores) {
+        const result = { storeName: store.name, invSynced: 0, discSynced: 0, invErrors: 0, discErrors: 0 };
 
-      console.log(`\n🚀 Starting sync for: ${store.name} (ID: ${store.dutchieStoreID})`);
+        console.log(`\n🚀 Starting sync for: ${store.name} (ID: ${store.dutchieStoreID})`);
 
-      try {
-        // Initialize services for this store
-        const dutchieService = new DutchieService({
-          apiKey: store.dutchieApiKey,
-          retailerId: store.dutchieStoreID,
-        });
+        try {
+          // Initialize Dutchie service for this store
+          const dutchieService = new DutchieService({
+            apiKey: store.dutchieApiKey,
+            retailerId: store.dutchieStoreID,
+          });
 
-        const inventoryService = new InventoryService();
-        const discountService = new DiscountService();
+          const storeInfo = {
+            storeId: store.id!,
+            storeName: store.name,
+            dutchieStoreID: store.dutchieStoreID,
+          };
 
-        const storeInfo = {
-          storeId: store.id!,
-          storeName: store.name,
-          dutchieStoreID: store.dutchieStoreID,
-        };
+          // Fetch inventory and discounts in parallel (safe - just reading from Dutchie)
+          const [inventoryItems, discounts] = await Promise.all([
+            dutchieService.getReportingInventory(),
+            dutchieService.getReportingDiscounts(),
+          ]);
 
-        // Fetch inventory and discounts in parallel (safe - just reading from Dutchie)
-        const [inventoryItems, discounts] = await Promise.all([
-          dutchieService.getReportingInventory(),
-          dutchieService.getReportingDiscounts(),
-        ]);
+          console.log(`[${store.name}] Fetched ${inventoryItems.length} inventory, ${discounts.length} discounts`);
 
-        console.log(`[${store.name}] Fetched ${inventoryItems.length} inventory, ${discounts.length} discounts`);
+          if (useDirectDb) {
+            // Direct database mode - much faster
+            const invResult = await databaseService.bulkUpsertInventory(inventoryItems, storeInfo);
+            const discResult = await databaseService.bulkUpsertDiscounts(discounts, storeInfo);
 
-        // Sync inventory first, then discounts (sequential to avoid Strapi conflicts)
-        const invResult = await inventoryService.bulkReplaceInventory(inventoryItems, storeInfo)
-          .then(r => ({ synced: r.created, errors: r.errors }))
-          .catch(() => ({ synced: 0, errors: 1 }));
+            result.invSynced = invResult.updated;
+            result.invErrors = invResult.errors;
+            result.discSynced = discResult.updated;
+            result.discErrors = discResult.errors;
+          } else {
+            // Strapi API mode
+            const inventoryService = new InventoryService();
+            const discountService = new DiscountService();
 
-        const discResult = await discountService.bulkReplaceDiscounts(discounts, storeInfo)
-          .then(r => ({ synced: r.created, errors: r.errors }))
-          .catch(() => ({ synced: 0, errors: 1 }));
+            const invResult = await inventoryService.bulkReplaceInventory(inventoryItems, storeInfo)
+              .then(r => ({ synced: r.created, errors: r.errors }))
+              .catch(() => ({ synced: 0, errors: 1 }));
 
-        result.invSynced = invResult.synced;
-        result.invErrors = invResult.errors;
-        result.discSynced = discResult.synced;
-        result.discErrors = discResult.errors;
+            const discResult = await discountService.bulkReplaceDiscounts(discounts, storeInfo)
+              .then(r => ({ synced: r.created, errors: r.errors }))
+              .catch(() => ({ synced: 0, errors: 1 }));
 
-        console.log(`✅ [${store.name}] Complete: ${result.invSynced} inventory, ${result.discSynced} discounts`);
+            result.invSynced = invResult.synced;
+            result.invErrors = invResult.errors;
+            result.discSynced = discResult.synced;
+            result.discErrors = discResult.errors;
+          }
 
-      } catch (storeError) {
-        console.error(`❌ Error syncing store "${store.name}":`, storeError);
+          console.log(`✅ [${store.name}] Complete: ${result.invSynced} inventory, ${result.discSynced} discounts`);
+
+        } catch (storeError) {
+          console.error(`❌ Error syncing store "${store.name}":`, storeError);
+        }
+
+        storeResults.push(result);
       }
-
-      storeResults.push(result);
+    } finally {
+      if (useDirectDb) {
+        await databaseService.disconnect();
+      }
     }
 
     // Aggregate results
