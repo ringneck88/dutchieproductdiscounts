@@ -33,8 +33,8 @@ class DatabaseService {
   }
 
   /**
-   * Bulk upsert inventory items directly to PostgreSQL
-   * Uses INSERT ... ON CONFLICT for atomic upserts
+   * Bulk sync inventory directly to PostgreSQL
+   * Simple approach: DELETE ALL for store, then INSERT fresh
    */
   async bulkUpsertInventory(
     inventoryItems: any[],
@@ -50,31 +50,25 @@ class DatabaseService {
     const validItems = inventoryItems.filter(item => (item.quantityAvailable ?? 0) >= 5);
     console.log(`[${storeInfo.storeName}] Processing ${validItems.length} items (filtered ${inventoryItems.length - validItems.length} with qty < 5)...`);
 
-    if (validItems.length === 0) {
-      return stats;
-    }
-
     const client = await this.pool.connect();
 
     try {
       await client.query('BEGIN');
 
-      // Step 1: Delete items for this store that aren't in the valid list
-      const validInventoryIds = validItems.map(item => String(item.inventoryId));
-
+      // Step 1: DELETE ALL inventory for this store
       const deleteResult = await client.query(`
-        DELETE FROM inventories
-        WHERE "dutchieStoreID" = $1
-        AND "inventoryId" IS NOT NULL
-        AND "inventoryId" != ALL($2::text[])
-      `, [storeInfo.dutchieStoreID, validInventoryIds]);
+        DELETE FROM inventories WHERE "dutchieStoreID" = $1
+      `, [storeInfo.dutchieStoreID]);
 
       stats.deleted = deleteResult.rowCount || 0;
-      if (stats.deleted > 0) {
-        console.log(`[${storeInfo.storeName}] Deleted ${stats.deleted} items`);
+      console.log(`[${storeInfo.storeName}] Deleted ${stats.deleted} existing items`);
+
+      if (validItems.length === 0) {
+        await client.query('COMMIT');
+        return stats;
       }
 
-      // Step 2: Bulk upsert in batches
+      // Step 2: INSERT all fresh items in batches
       const batchSize = 100;
 
       for (let i = 0; i < validItems.length; i += batchSize) {
@@ -149,7 +143,8 @@ class DatabaseService {
           paramIndex += row.length;
         }
 
-        const upsertQuery = `
+        // Simple INSERT - no conflict handling needed since we deleted first
+        const insertQuery = `
           INSERT INTO inventories (
             "inventoryId", "dutchieStoreID", "productId", "sku", "productName",
             "description", "categoryId", "category", "imageUrl", "quantityAvailable",
@@ -163,75 +158,22 @@ class DatabaseService {
             "medicalOnly", "producer", "producerId", "potencyIndicator", "masterCategory",
             "effectivePotencyMg", "isCannabis", "updated_at"
           ) VALUES ${valuePlaceholders.join(', ')}
-          ON CONFLICT ("inventoryId") DO UPDATE SET
-            "dutchieStoreID" = EXCLUDED."dutchieStoreID",
-            "productId" = EXCLUDED."productId",
-            "sku" = EXCLUDED."sku",
-            "productName" = EXCLUDED."productName",
-            "description" = EXCLUDED."description",
-            "categoryId" = EXCLUDED."categoryId",
-            "category" = EXCLUDED."category",
-            "imageUrl" = EXCLUDED."imageUrl",
-            "quantityAvailable" = EXCLUDED."quantityAvailable",
-            "quantityUnits" = EXCLUDED."quantityUnits",
-            "allocatedQuantity" = EXCLUDED."allocatedQuantity",
-            "unitWeight" = EXCLUDED."unitWeight",
-            "unitWeightUnit" = EXCLUDED."unitWeightUnit",
-            "unitCost" = EXCLUDED."unitCost",
-            "unitPrice" = EXCLUDED."unitPrice",
-            "medUnitPrice" = EXCLUDED."medUnitPrice",
-            "recUnitPrice" = EXCLUDED."recUnitPrice",
-            "flowerEquivalent" = EXCLUDED."flowerEquivalent",
-            "recFlowerEquivalent" = EXCLUDED."recFlowerEquivalent",
-            "flowerEquivalentUnits" = EXCLUDED."flowerEquivalentUnits",
-            "batchId" = EXCLUDED."batchId",
-            "batchName" = EXCLUDED."batchName",
-            "packageId" = EXCLUDED."packageId",
-            "packageStatus" = EXCLUDED."packageStatus",
-            "externalPackageId" = EXCLUDED."externalPackageId",
-            "packageNDC" = EXCLUDED."packageNDC",
-            "strainId" = EXCLUDED."strainId",
-            "strain" = EXCLUDED."strain",
-            "strainType" = EXCLUDED."strainType",
-            "size" = EXCLUDED."size",
-            "testedDate" = EXCLUDED."testedDate",
-            "sampleDate" = EXCLUDED."sampleDate",
-            "packagedDate" = EXCLUDED."packagedDate",
-            "manufacturingDate" = EXCLUDED."manufacturingDate",
-            "lastModifiedDateUtc" = EXCLUDED."lastModifiedDateUtc",
-            "expirationDate" = EXCLUDED."expirationDate",
-            "labTestStatus" = EXCLUDED."labTestStatus",
-            "labResultUrl" = EXCLUDED."labResultUrl",
-            "vendorId" = EXCLUDED."vendorId",
-            "vendor" = EXCLUDED."vendor",
-            "pricingTierName" = EXCLUDED."pricingTierName",
-            "alternateName" = EXCLUDED."alternateName",
-            "brandId" = EXCLUDED."brandId",
-            "brandName" = EXCLUDED."brandName",
-            "medicalOnly" = EXCLUDED."medicalOnly",
-            "producer" = EXCLUDED."producer",
-            "producerId" = EXCLUDED."producerId",
-            "potencyIndicator" = EXCLUDED."potencyIndicator",
-            "masterCategory" = EXCLUDED."masterCategory",
-            "effectivePotencyMg" = EXCLUDED."effectivePotencyMg",
-            "isCannabis" = EXCLUDED."isCannabis",
-            "updated_at" = EXCLUDED."updated_at"
         `;
 
         try {
-          await client.query(upsertQuery, values);
-          stats.updated += batch.length;
+          await client.query(insertQuery, values);
+          stats.created += batch.length;
         } catch (err: any) {
           console.error(`[${storeInfo.storeName}] Batch error:`, err.message);
           stats.errors += batch.length;
         }
 
         const progress = Math.min(i + batchSize, validItems.length);
-        console.log(`[${storeInfo.storeName}] Progress: ${progress}/${validItems.length}`);
+        console.log(`[${storeInfo.storeName}] Inserted: ${progress}/${validItems.length}`);
       }
 
       await client.query('COMMIT');
-      console.log(`[${storeInfo.storeName}] Complete: ${stats.updated} upserted, ${stats.deleted} deleted`);
+      console.log(`[${storeInfo.storeName}] Complete: ${stats.created} inserted, ${stats.deleted} deleted`);
 
     } catch (error: any) {
       await client.query('ROLLBACK');
@@ -245,7 +187,8 @@ class DatabaseService {
   }
 
   /**
-   * Bulk upsert discounts directly to PostgreSQL
+   * Bulk sync discounts directly to PostgreSQL
+   * Simple approach: DELETE ALL for store, then INSERT fresh
    */
   async bulkUpsertDiscounts(
     discounts: any[],
@@ -271,14 +214,25 @@ class DatabaseService {
 
     console.log(`[${storeInfo.storeName}] Processing ${activeDiscounts.length} discounts (filtered ${discounts.length - activeDiscounts.length} inactive/expired)...`);
 
-    if (activeDiscounts.length === 0) {
-      return stats;
-    }
-
     const client = await this.pool.connect();
 
     try {
       await client.query('BEGIN');
+
+      // Step 1: DELETE ALL discounts that have this store in appliesToLocations
+      // Using JSON containment operator to find discounts for this store
+      const deleteResult = await client.query(`
+        DELETE FROM discounts
+        WHERE "appliesToLocations"::jsonb @> $1::jsonb
+      `, [JSON.stringify([{ dutchieStoreID: storeInfo.dutchieStoreID }])]);
+
+      stats.deleted = deleteResult.rowCount || 0;
+      console.log(`[${storeInfo.storeName}] Deleted ${stats.deleted} existing discounts`);
+
+      if (activeDiscounts.length === 0) {
+        await client.query('COMMIT');
+        return stats;
+      }
 
       // Build appliesToLocations JSON for this store
       const appliesToLocations = JSON.stringify([{
@@ -286,7 +240,7 @@ class DatabaseService {
         dutchieStoreID: storeInfo.dutchieStoreID,
       }]);
 
-      // Bulk upsert in batches
+      // Step 2: INSERT all fresh discounts in batches
       const batchSize = 100;
 
       for (let i = 0; i < activeDiscounts.length; i += batchSize) {
@@ -340,7 +294,8 @@ class DatabaseService {
           paramIndex += row.length;
         }
 
-        const upsertQuery = `
+        // Simple INSERT - no conflict handling needed since we deleted first
+        const insertQuery = `
           INSERT INTO discounts (
             "discountId", "discountName", "discountCode", "discountAmount", "discountType",
             "discountMethod", "applicationMethod", "externalId", "isActive", "isAvailableOnline",
@@ -350,56 +305,22 @@ class DatabaseService {
             "products", "productCategories", "brands", "vendors", "strains", "tiers", "tags",
             "inventoryTags", "customerTypes", "discountGroups", "updated_at"
           ) VALUES ${valuePlaceholders.join(', ')}
-          ON CONFLICT ("discountId") DO UPDATE SET
-            "discountName" = EXCLUDED."discountName",
-            "discountCode" = EXCLUDED."discountCode",
-            "discountAmount" = EXCLUDED."discountAmount",
-            "discountType" = EXCLUDED."discountType",
-            "discountMethod" = EXCLUDED."discountMethod",
-            "applicationMethod" = EXCLUDED."applicationMethod",
-            "externalId" = EXCLUDED."externalId",
-            "isActive" = EXCLUDED."isActive",
-            "isAvailableOnline" = EXCLUDED."isAvailableOnline",
-            "isDeleted" = EXCLUDED."isDeleted",
-            "requireManagerApproval" = EXCLUDED."requireManagerApproval",
-            "validFrom" = EXCLUDED."validFrom",
-            "validUntil" = EXCLUDED."validUntil",
-            "thresholdType" = EXCLUDED."thresholdType",
-            "minimumItemsRequired" = EXCLUDED."minimumItemsRequired",
-            "maximumItemsAllowed" = EXCLUDED."maximumItemsAllowed",
-            "maximumUsageCount" = EXCLUDED."maximumUsageCount",
-            "includeNonCannabis" = EXCLUDED."includeNonCannabis",
-            "firstTimeCustomerOnly" = EXCLUDED."firstTimeCustomerOnly",
-            "stackOnOtherDiscounts" = EXCLUDED."stackOnOtherDiscounts",
-            "appliesToLocations" = EXCLUDED."appliesToLocations",
-            "weeklyRecurrenceInfo" = EXCLUDED."weeklyRecurrenceInfo",
-            "products" = EXCLUDED."products",
-            "productCategories" = EXCLUDED."productCategories",
-            "brands" = EXCLUDED."brands",
-            "vendors" = EXCLUDED."vendors",
-            "strains" = EXCLUDED."strains",
-            "tiers" = EXCLUDED."tiers",
-            "tags" = EXCLUDED."tags",
-            "inventoryTags" = EXCLUDED."inventoryTags",
-            "customerTypes" = EXCLUDED."customerTypes",
-            "discountGroups" = EXCLUDED."discountGroups",
-            "updated_at" = EXCLUDED."updated_at"
         `;
 
         try {
-          await client.query(upsertQuery, values);
-          stats.updated += batch.length;
+          await client.query(insertQuery, values);
+          stats.created += batch.length;
         } catch (err: any) {
           console.error(`[${storeInfo.storeName}] Batch error:`, err.message);
           stats.errors += batch.length;
         }
 
         const progress = Math.min(i + batchSize, activeDiscounts.length);
-        console.log(`[${storeInfo.storeName}] Progress: ${progress}/${activeDiscounts.length}`);
+        console.log(`[${storeInfo.storeName}] Inserted: ${progress}/${activeDiscounts.length}`);
       }
 
       await client.query('COMMIT');
-      console.log(`[${storeInfo.storeName}] Complete: ${stats.updated} upserted`);
+      console.log(`[${storeInfo.storeName}] Complete: ${stats.created} inserted, ${stats.deleted} deleted`);
 
     } catch (error: any) {
       await client.query('ROLLBACK');

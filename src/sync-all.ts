@@ -82,9 +82,9 @@ async function syncAll() {
             const invResult = await databaseService.bulkUpsertInventory(inventoryItems, storeInfo);
             const discResult = await databaseService.bulkUpsertDiscounts(discounts, storeInfo);
 
-            result.invSynced = invResult.updated;
+            result.invSynced = invResult.created;
             result.invErrors = invResult.errors;
-            result.discSynced = discResult.updated;
+            result.discSynced = discResult.created;
             result.discErrors = discResult.errors;
           } else {
             // Strapi API mode
