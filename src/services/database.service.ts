@@ -189,7 +189,8 @@ class DatabaseService {
 
   /**
    * Bulk sync discounts directly to PostgreSQL
-   * Simple approach: DELETE ALL for store, then INSERT fresh
+   * Simple approach: DELETE ALL discounts, then INSERT fresh
+   * Note: The deployed Strapi schema may not have all columns - we only use columns that exist
    */
   async bulkUpsertDiscounts(
     discounts: any[],
@@ -220,13 +221,8 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Step 1: DELETE ALL discounts that have this store in appliesToLocations
-      // Using JSON containment operator to find discounts for this store
-      // Note: Strapi uses snake_case column names
-      const deleteResult = await client.query(`
-        DELETE FROM discounts
-        WHERE applies_to_locations::jsonb @> $1::jsonb
-      `, [JSON.stringify([{ dutchieStoreID: storeInfo.dutchieStoreID }])]);
+      // Step 1: DELETE ALL discounts (simple approach since appliesToLocations column may not exist)
+      const deleteResult = await client.query(`DELETE FROM discounts`);
 
       stats.deleted = deleteResult.rowCount || 0;
       console.log(`[${storeInfo.storeName}] Deleted ${stats.deleted} existing discounts`);
@@ -236,13 +232,8 @@ class DatabaseService {
         return stats;
       }
 
-      // Build appliesToLocations JSON for this store
-      const appliesToLocations = JSON.stringify([{
-        locationName: storeInfo.storeName,
-        dutchieStoreID: storeInfo.dutchieStoreID,
-      }]);
-
       // Step 2: INSERT all fresh discounts in batches
+      // Using only columns that exist in the deployed schema
       const batchSize = 100;
 
       for (let i = 0; i < activeDiscounts.length; i += batchSize) {
@@ -275,7 +266,6 @@ class DatabaseService {
             discount.includeNonCannabis ?? false,
             discount.firstTimeCustomerOnly ?? false,
             discount.stackOnOtherDiscounts ?? false,
-            appliesToLocations,
             discount.weeklyRecurrenceInfo ? JSON.stringify(discount.weeklyRecurrenceInfo) : null,
             discount.products ? JSON.stringify(discount.products) : null,
             discount.productCategories ? JSON.stringify(discount.productCategories) : null,
@@ -296,14 +286,15 @@ class DatabaseService {
           paramIndex += row.length;
         }
 
-        // Simple INSERT - Strapi uses snake_case column names
+        // Simple INSERT - using only columns that exist in the deployed Strapi schema
+        // Note: applies_to_locations column removed as it may not exist in deployed DB
         const insertQuery = `
           INSERT INTO discounts (
             discount_id, discount_name, discount_code, discount_amount, discount_type,
             discount_method, application_method, external_id, is_active, is_available_online,
             is_deleted, require_manager_approval, valid_from, valid_until, threshold_type,
             minimum_items_required, maximum_items_allowed, maximum_usage_count, include_non_cannabis,
-            first_time_customer_only, stack_on_other_discounts, applies_to_locations, weekly_recurrence_info,
+            first_time_customer_only, stack_on_other_discounts, weekly_recurrence_info,
             products, product_categories, brands, vendors, strains, tiers, tags,
             inventory_tags, customer_types, discount_groups, updated_at
           ) VALUES ${valuePlaceholders.join(', ')}
