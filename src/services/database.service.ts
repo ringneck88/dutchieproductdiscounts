@@ -369,7 +369,6 @@ class DatabaseService {
     name: string;
     dutchieStoreID: string;
     dutchieApiKey: string;
-    location?: string;
   }>> {
     if (!this.pool) {
       throw new Error('Database not connected');
@@ -380,8 +379,7 @@ class DatabaseService {
         id,
         name,
         dutchie_store_id as "dutchieStoreID",
-        dutchie_api_key as "dutchieApiKey",
-        location
+        dutchie_api_key as "dutchieApiKey"
       FROM stores
       WHERE dutchie_store_id IS NOT NULL
         AND dutchie_api_key IS NOT NULL

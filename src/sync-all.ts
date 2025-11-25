@@ -26,7 +26,6 @@ async function syncAll() {
       name: string;
       dutchieStoreID: string;
       dutchieApiKey: string;
-      location?: string;
     }>;
 
     if (useDirectDb) {
