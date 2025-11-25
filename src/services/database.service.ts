@@ -135,6 +135,8 @@ class DatabaseService {
             item.effectivePotencyMg ?? null,
             item.isCannabis ?? true,
             new Date(), // updated_at
+            new Date(), // published_at
+            new Date(), // created_at
           ];
 
           values.push(...row);
@@ -157,7 +159,7 @@ class DatabaseService {
             last_modified_date_utc, expiration_date, lab_test_status, lab_result_url, vendor_id,
             vendor, pricing_tier_name, alternate_name, brand_id, brand_name,
             medical_only, producer, producer_id, potency_indicator, master_category,
-            effective_potency_mg, is_cannabis, updated_at
+            effective_potency_mg, is_cannabis, updated_at, published_at, created_at
           ) VALUES ${valuePlaceholders.join(', ')}
         `;
 
@@ -273,6 +275,8 @@ class DatabaseService {
       { col: 'customer_types', getValue: (d) => d.customerTypes ? JSON.stringify(d.customerTypes) : null },
       { col: 'discount_groups', getValue: (d) => d.discountGroups ? JSON.stringify(d.discountGroups) : null },
       { col: 'updated_at', getValue: () => new Date() },
+      { col: 'published_at', getValue: () => new Date() },
+      { col: 'created_at', getValue: () => new Date() },
     ];
 
     // Filter to only columns that exist in the database
@@ -284,11 +288,14 @@ class DatabaseService {
     try {
       await client.query('BEGIN');
 
-      // Step 1: DELETE ALL discounts
-      const deleteResult = await client.query(`DELETE FROM discounts`);
+      // Step 1: DELETE discounts for this store only (using JSONB containment)
+      const deleteResult = await client.query(`
+        DELETE FROM discounts
+        WHERE applies_to_locations @> $1::jsonb
+      `, [JSON.stringify([{ dutchieStoreID: storeInfo.dutchieStoreID }])]);
 
       stats.deleted = deleteResult.rowCount || 0;
-      console.log(`[${storeInfo.storeName}] Deleted ${stats.deleted} existing discounts`);
+      console.log(`[${storeInfo.storeName}] Deleted ${stats.deleted} existing discounts for this store`);
 
       if (activeDiscounts.length === 0) {
         await client.query('COMMIT');
