@@ -248,7 +248,7 @@ class DatabaseService {
 
     // Define all possible column mappings (db_column -> getter function)
     const allColumnMappings: { col: string; getValue: (d: any) => any }[] = [
-      { col: 'document_id', getValue: () => randomUUID() }, // Required for Strapi v5
+      { col: 'document_id', getValue: () => generateStrapiDocumentId() }, // Required for Strapi v5
       { col: 'discount_id', getValue: (d) => String(d.discountId) },
       { col: 'discount_name', getValue: (d) => d.discountName || null },
       { col: 'discount_code', getValue: (d) => d.discountCode || null },
