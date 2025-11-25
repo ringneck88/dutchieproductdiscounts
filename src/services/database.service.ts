@@ -56,8 +56,9 @@ class DatabaseService {
       await client.query('BEGIN');
 
       // Step 1: DELETE ALL inventory for this store
+      // Note: Strapi uses snake_case column names in PostgreSQL
       const deleteResult = await client.query(`
-        DELETE FROM inventories WHERE "dutchieStoreID" = $1
+        DELETE FROM inventories WHERE dutchie_store_id = $1
       `, [storeInfo.dutchieStoreID]);
 
       stats.deleted = deleteResult.rowCount || 0;
@@ -143,20 +144,20 @@ class DatabaseService {
           paramIndex += row.length;
         }
 
-        // Simple INSERT - no conflict handling needed since we deleted first
+        // Simple INSERT - Strapi uses snake_case column names
         const insertQuery = `
           INSERT INTO inventories (
-            "inventoryId", "dutchieStoreID", "productId", "sku", "productName",
-            "description", "categoryId", "category", "imageUrl", "quantityAvailable",
-            "quantityUnits", "allocatedQuantity", "unitWeight", "unitWeightUnit", "unitCost",
-            "unitPrice", "medUnitPrice", "recUnitPrice", "flowerEquivalent", "recFlowerEquivalent",
-            "flowerEquivalentUnits", "batchId", "batchName", "packageId", "packageStatus",
-            "externalPackageId", "packageNDC", "strainId", "strain", "strainType",
-            "size", "testedDate", "sampleDate", "packagedDate", "manufacturingDate",
-            "lastModifiedDateUtc", "expirationDate", "labTestStatus", "labResultUrl", "vendorId",
-            "vendor", "pricingTierName", "alternateName", "brandId", "brandName",
-            "medicalOnly", "producer", "producerId", "potencyIndicator", "masterCategory",
-            "effectivePotencyMg", "isCannabis", "updated_at"
+            inventory_id, dutchie_store_id, product_id, sku, product_name,
+            description, category_id, category, image_url, quantity_available,
+            quantity_units, allocated_quantity, unit_weight, unit_weight_unit, unit_cost,
+            unit_price, med_unit_price, rec_unit_price, flower_equivalent, rec_flower_equivalent,
+            flower_equivalent_units, batch_id, batch_name, package_id, package_status,
+            external_package_id, package_ndc, strain_id, strain, strain_type,
+            size, tested_date, sample_date, packaged_date, manufacturing_date,
+            last_modified_date_utc, expiration_date, lab_test_status, lab_result_url, vendor_id,
+            vendor, pricing_tier_name, alternate_name, brand_id, brand_name,
+            medical_only, producer, producer_id, potency_indicator, master_category,
+            effective_potency_mg, is_cannabis, updated_at
           ) VALUES ${valuePlaceholders.join(', ')}
         `;
 
@@ -221,9 +222,10 @@ class DatabaseService {
 
       // Step 1: DELETE ALL discounts that have this store in appliesToLocations
       // Using JSON containment operator to find discounts for this store
+      // Note: Strapi uses snake_case column names
       const deleteResult = await client.query(`
         DELETE FROM discounts
-        WHERE "appliesToLocations"::jsonb @> $1::jsonb
+        WHERE applies_to_locations::jsonb @> $1::jsonb
       `, [JSON.stringify([{ dutchieStoreID: storeInfo.dutchieStoreID }])]);
 
       stats.deleted = deleteResult.rowCount || 0;
@@ -294,16 +296,16 @@ class DatabaseService {
           paramIndex += row.length;
         }
 
-        // Simple INSERT - no conflict handling needed since we deleted first
+        // Simple INSERT - Strapi uses snake_case column names
         const insertQuery = `
           INSERT INTO discounts (
-            "discountId", "discountName", "discountCode", "discountAmount", "discountType",
-            "discountMethod", "applicationMethod", "externalId", "isActive", "isAvailableOnline",
-            "isDeleted", "requireManagerApproval", "validFrom", "validUntil", "thresholdType",
-            "minimumItemsRequired", "maximumItemsAllowed", "maximumUsageCount", "includeNonCannabis",
-            "firstTimeCustomerOnly", "stackOnOtherDiscounts", "appliesToLocations", "weeklyRecurrenceInfo",
-            "products", "productCategories", "brands", "vendors", "strains", "tiers", "tags",
-            "inventoryTags", "customerTypes", "discountGroups", "updated_at"
+            discount_id, discount_name, discount_code, discount_amount, discount_type,
+            discount_method, application_method, external_id, is_active, is_available_online,
+            is_deleted, require_manager_approval, valid_from, valid_until, threshold_type,
+            minimum_items_required, maximum_items_allowed, maximum_usage_count, include_non_cannabis,
+            first_time_customer_only, stack_on_other_discounts, applies_to_locations, weekly_recurrence_info,
+            products, product_categories, brands, vendors, strains, tiers, tags,
+            inventory_tags, customer_types, discount_groups, updated_at
           ) VALUES ${valuePlaceholders.join(', ')}
         `;
 
