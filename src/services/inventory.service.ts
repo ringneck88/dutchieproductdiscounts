@@ -546,7 +546,23 @@ class InventoryService {
                           );
                           return 'created';
                         }
+                        // Log unexpected update errors
+                        if (!firstError) {
+                          console.log(`[DEBUG] Update failed for ${invId} (strapiId=${existingId}):`, updateErr.response?.data || updateErr.message);
+                        }
                         throw updateErr;
+                      }
+                    } else {
+                      // Not in map - fetch directly from Strapi
+                      if (!firstError) {
+                        console.log(`[DEBUG] invId "${invId}" not in allItemsMap, fetching from Strapi...`);
+                      }
+                      const found = await this.findInventoryByDutchieId(invId);
+                      if (found) {
+                        await this.retryWithBackoff(() =>
+                          this.client.put(`/api/${this.COLLECTION_NAME}/${found.id}`, { data: mappedData })
+                        );
+                        return 'updated';
                       }
                     }
                   }
