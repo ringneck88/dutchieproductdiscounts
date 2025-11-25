@@ -412,9 +412,11 @@ class InventoryService {
     const batchSize = 50;
 
     try {
-      // Step 1: Fetch ALL existing inventory into a map (inventoryId -> strapiId)
-      console.log(`[${storeInfo.storeName}] Fetching all existing inventory from Strapi...`);
-      const existingMap = new Map<string, number>(); // inventoryId -> strapi id
+      // Step 1: Fetch ALL existing inventory, filter by store in code
+      // (filter in code to handle items without dutchieStoreID set)
+      console.log(`[${storeInfo.storeName}] Fetching existing inventory from Strapi...`);
+      const existingMap = new Map<string, number>(); // inventoryId -> strapi id (for THIS store)
+      const allItemsMap = new Map<string, number>(); // ALL inventoryIds -> strapi id (for unique constraint handling)
       let page = 1;
       let hasMore = true;
 
@@ -432,14 +434,22 @@ class InventoryService {
         for (const item of items) {
           const attrs = item.attributes || item;
           const invId = String(attrs.inventoryId);
-          existingMap.set(invId, item.id);
+          const itemStoreId = attrs.dutchieStoreID;
+
+          // Track all items for unique constraint handling
+          allItemsMap.set(invId, item.id);
+
+          // Only include in existingMap if belongs to THIS store or has no store set
+          if (itemStoreId === storeInfo.dutchieStoreID || !itemStoreId) {
+            existingMap.set(invId, item.id);
+          }
         }
 
         hasMore = items.length === 100;
         page++;
       }
 
-      console.log(`[${storeInfo.storeName}] Found ${existingMap.size} existing items in Strapi`);
+      console.log(`[${storeInfo.storeName}] Found ${existingMap.size} items for this store (${allItemsMap.size} total in Strapi)`);
 
       // Step 2: Filter items with quantity >= 5
       const validItems = inventoryItems.filter(item => (item.quantityAvailable ?? 0) >= 5);
@@ -483,12 +493,23 @@ class InventoryService {
             try {
               const mappedData = this.mapInventoryData(item, storeInfo);
               const invId = String(item.inventoryId);
+
+              // Check if exists in THIS store's items
               const existingStrapiId = existingMap.get(invId);
 
+              // Also check if exists in ANY store (for unique constraint)
+              const anyExistingId = allItemsMap.get(invId);
+
               if (existingStrapiId) {
-                // Update existing
+                // Update existing item for this store
                 await this.retryWithBackoff(() =>
                   this.client.put(`/api/${this.COLLECTION_NAME}/${existingStrapiId}`, { data: mappedData })
+                );
+                return 'updated';
+              } else if (anyExistingId) {
+                // Item exists in another store - update it to claim it for this store
+                await this.retryWithBackoff(() =>
+                  this.client.put(`/api/${this.COLLECTION_NAME}/${anyExistingId}`, { data: mappedData })
                 );
                 return 'updated';
               } else {
