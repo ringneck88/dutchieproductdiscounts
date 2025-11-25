@@ -41,10 +41,12 @@ async function syncAll() {
     // Check if direct database mode is enabled
     const useDirectDb = config.database.enabled;
     if (useDirectDb) {
-      console.log('🚀 Using DIRECT DATABASE mode (PostgreSQL) - much faster!\n');
+      console.log('🚀 Using DIRECT DATABASE mode (PostgreSQL) - much faster!');
+      console.log(`   DATABASE_URL: ${config.database.url.substring(0, 30)}...\n`);
       await databaseService.connect();
     } else {
-      console.log('Using Strapi API mode (set DATABASE_URL for faster sync)\n');
+      console.log('⚠️  Using Strapi API mode (SLOW)');
+      console.log('   Set DATABASE_URL environment variable for 100x faster sync!\n');
     }
 
     // Sync stores SEQUENTIALLY to avoid race conditions
